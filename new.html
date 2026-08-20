@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create New Event — Jetty Showtime</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%230F0F0F'/%3E%3Cpath d='M6 21c3.6 0 3.6-3 7.2-3s3.6 3 7.2 3 3.6-3 5.6-3' stroke='%234A8A84' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Crect x='9' y='7' width='14' height='8' rx='1.5' fill='none' stroke='%23C4A067' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div id="hdr"></div>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Set up a show</div>
+    <h1 id="page-title">Create New Event</h1>
+    <div class="meta">Days, stations, hours. Takes about a minute — then share the link.</div>
+  </div>
+</section>
+
+
+<div id="gate" class="gate hidden">
+  <div class="lock">&#128274;</div>
+  <h2>Admin only</h2>
+  <p id="gate-msg">Creating events is restricted. Enter the admin password to continue.</p>
+  <button class="btn" id="gate-btn">Enter admin password</button>
+  <p style="margin-top:18px"><a href="index.html" class="small">Back to events</a></p>
+</div>
+
+<main class="wrap-narrow section hidden" id="main">
+  <div id="alert" class="alert" hidden></div>
+
+  <form id="ev-form" novalidate>
+
+    <div class="card">
+      <div class="section-title" style="margin-top:0">The Basics</div>
+      <div class="field">
+        <label for="f-name">Event Name <span class="req">*</span></label>
+        <input type="text" id="f-name" required placeholder="e.g. Surf Expo — Fall 2026">
+      </div>
+      <div class="field">
+        <label for="f-subtitle">Subtitle</label>
+        <input type="text" id="f-subtitle" placeholder="e.g. Jetty Showroom Appointments">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="f-venue">Venue</label>
+          <input type="text" id="f-venue" placeholder="e.g. Orange County Convention Center">
+        </div>
+        <div class="field">
+          <label for="f-city">City</label>
+          <input type="text" id="f-city" placeholder="e.g. Orlando, FL">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="f-notify">Notify Email</label>
+          <input type="email" id="f-notify" placeholder="you@jettylife.com">
+          <div class="hint">Gets a copy of every booking and cancellation.</div>
+        </div>
+        <div class="field">
+          <label for="f-replyto">Reply-To on Confirmations</label>
+          <input type="email" id="f-replyto" placeholder="you@jettylife.com">
+          <div class="hint">Where replies from retailers land.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="section-title" style="margin-top:0">Days &amp; Hours</div>
+      <div class="row3">
+        <div class="field">
+          <label for="f-start">First Day <span class="req">*</span></label>
+          <input type="date" id="f-start" required>
+        </div>
+        <div class="field">
+          <label for="f-end">Last Day <span class="req">*</span></label>
+          <input type="date" id="f-end" required>
+        </div>
+        <div class="field">
+          <label for="f-slot">Appointment Length <span class="req">*</span></label>
+          <select id="f-slot">
+            <option value="30">30 minutes</option>
+            <option value="45">45 minutes</option>
+            <option value="60" selected>60 minutes</option>
+            <option value="90">90 minutes</option>
+            <option value="120">2 hours</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="f-dstart">Default Start Time</label>
+          <input type="time" id="f-dstart" value="09:00" step="900">
+        </div>
+        <div class="field">
+          <label for="f-dend">Default End Time</label>
+          <input type="time" id="f-dend" value="18:00" step="900">
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>Per-Day Hours</label>
+        <div class="hint" style="margin-top:0;margin-bottom:10px">Uncheck a day to drop it. Adjust hours for a short setup or teardown day.</div>
+        <div id="days"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="section-title" style="margin-top:0">Stations</div>
+      <div class="hint" style="margin-bottom:12px">One column per station on the booking grid — a table, a rep, a line, whatever you're scheduling against.</div>
+      <div id="stations" class="stack"></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="add-station" style="margin-top:12px">+ Add Station</button>
+    </div>
+
+    <div id="preview" class="card" style="margin-top:18px">
+      <div class="section-title" style="margin-top:0">Preview</div>
+      <div id="preview-body" class="muted small">Fill in the dates above to see the slot count.</div>
+    </div>
+
+    <div style="margin-top:22px;display:flex;gap:10px;flex-wrap:wrap">
+      <button type="submit" class="btn" id="submit">Create Event</button>
+      <a class="btn btn-ghost" href="index.html">Cancel</a>
+    </div>
+  </form>
+</main>
+
+<div id="ftr"></div>
+
+<script src="config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+(function () {
+  document.getElementById('hdr').innerHTML = ST.header('new');
+  document.getElementById('ftr').innerHTML = ST.footer();
+  ST.applyRoleToChrome();
+
+  var $ = function (id) { return document.getElementById(id); };
+  var alertBox = $('alert');
+  var dayOverrides = {};
+
+  /* ---------------- Admin gate ---------------- */
+  function showGate(msg) {
+    if (msg) document.getElementById('gate-msg').textContent = msg;
+    document.getElementById('gate').classList.remove('hidden');
+    document.getElementById('main').classList.add('hidden');
+  }
+  function hideGate() {
+    document.getElementById('gate').classList.add('hidden');
+    document.getElementById('main').classList.remove('hidden');
+  }
+  document.getElementById('gate-btn').onclick = function () {
+    var t = window.prompt('Admin password:', '');
+    if (!t) return;
+    ST.setToken(t.trim());
+    checkAdmin();
+  };
+  function checkAdmin() {
+    return ST.get({ action: 'ping' }).then(function (d) {
+      if (d.role === 'admin') { hideGate(); return true; }
+      // Only wipe a password that was actually rejected. A rep who lands here
+      // is simply not an admin — don't demote them to retailer on the way out.
+      if (d.role === 'public') ST.setToken('');
+      showGate('That password was not recognised. Try again, or ask Cory for the admin password.');
+      return false;
+    }).catch(function (err) {
+      showGate(err.message);
+      return false;
+    });
+  }
+
+
+  var DEFAULT_STATIONS = [
+    'SS27 (Bouchard)',
+    'Summer (In-House) / Business',
+    "Women's SS27 / Business",
+    'FW27 Pre Line / Business'
+  ];
+
+  /* ---------------- Stations ---------------- */
+
+  function stationRow(value) {
+    var wrap = ST.el('div', { style: 'display:flex;gap:8px;align-items:center' });
+    var input = ST.el('input', { type: 'text', class: 'st-input', placeholder: 'Station name', value: value || '' });
+    var del = ST.el('button', {
+      type: 'button', class: 'btn btn-ghost btn-sm nowrap',
+      text: 'Remove',
+      onclick: function () { wrap.remove(); renumber(); updatePreview(); }
+    });
+    var num = ST.el('div', {
+      class: 'mono muted nowrap',
+      style: 'width:74px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase'
+    });
+    input.addEventListener('input', updatePreview);
+    wrap.appendChild(num); wrap.appendChild(input); wrap.appendChild(del);
+    return wrap;
+  }
+
+  function renumber() {
+    Array.prototype.forEach.call($('stations').children, function (row, i) {
+      row.firstChild.textContent = 'Station ' + (i + 1);
+    });
+  }
+
+  DEFAULT_STATIONS.forEach(function (s) { $('stations').appendChild(stationRow(s)); });
+  renumber();
+
+  $('add-station').onclick = function () {
+    $('stations').appendChild(stationRow(''));
+    renumber();
+    updatePreview();
+  };
+
+  function stationValues() {
+    return Array.prototype.map.call($('stations').querySelectorAll('.st-input'), function (i) {
+      return i.value.trim();
+    }).filter(Boolean);
+  }
+
+  /* ---------------- Days ---------------- */
+
+  function dateList(a, b) {
+    if (!a || !b || a > b) return [];
+    var out = [], cur = ST.parseDate(a), end = ST.parseDate(b), guard = 0;
+    while (cur <= end && guard++ < 90) {
+      out.push(cur.getFullYear() + '-' + ST.pad(cur.getMonth() + 1) + '-' + ST.pad(cur.getDate()));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+  }
+
+  function renderDays() {
+    var dates = dateList($('f-start').value, $('f-end').value);
+    var host = $('days');
+    host.innerHTML = '';
+    if (!dates.length) {
+      host.innerHTML = '<div class="muted small">Pick a first and last day.</div>';
+      updatePreview();
+      return;
+    }
+    dates.forEach(function (d) {
+      var o = dayOverrides[d] || (dayOverrides[d] = {
+        on: true, start: $('f-dstart').value, end: $('f-dend').value
+      });
+      var row = ST.el('div', {
+        style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--line)'
+      });
+      var cb = ST.el('input', { type: 'checkbox' });
+      cb.checked = o.on;
+      cb.addEventListener('change', function () { o.on = cb.checked; updatePreview(); });
+      var lbl = ST.el('label', {
+        style: 'display:flex;align-items:center;gap:9px;margin:0;flex:1;min-width:190px;text-transform:none;letter-spacing:0;font-size:14px;font-weight:600;color:var(--black);cursor:pointer'
+      });
+      lbl.appendChild(cb);
+      lbl.appendChild(ST.el('span', { text: ST.dowName(d) + ', ' + ST.shortDate(d) }));
+      var s = ST.el('input', { type: 'time', value: o.start, step: '900', style: 'width:118px' });
+      var e = ST.el('input', { type: 'time', value: o.end, step: '900', style: 'width:118px' });
+      s.addEventListener('input', function () { o.start = s.value; updatePreview(); });
+      e.addEventListener('input', function () { o.end = e.value; updatePreview(); });
+      row.appendChild(lbl);
+      row.appendChild(ST.el('span', { class: 'muted small', text: 'from' }));
+      row.appendChild(s);
+      row.appendChild(ST.el('span', { class: 'muted small', text: 'to' }));
+      row.appendChild(e);
+      host.appendChild(row);
+    });
+    updatePreview();
+  }
+
+  function activeDays() {
+    return dateList($('f-start').value, $('f-end').value)
+      .filter(function (d) { return dayOverrides[d] && dayOverrides[d].on; })
+      .map(function (d, i) {
+        return {
+          date: d,
+          label: 'Day ' + (i + 1),
+          start: dayOverrides[d].start || '09:00',
+          end: dayOverrides[d].end || '18:00'
+        };
+      });
+  }
+
+  ['f-start', 'f-end'].forEach(function (id) { $(id).addEventListener('change', renderDays); });
+  ['f-dstart', 'f-dend'].forEach(function (id) {
+    $(id).addEventListener('change', function () {
+      Object.keys(dayOverrides).forEach(function (d) {
+        dayOverrides[d].start = $('f-dstart').value;
+        dayOverrides[d].end = $('f-dend').value;
+      });
+      renderDays();
+    });
+  });
+  $('f-slot').addEventListener('change', updatePreview);
+
+  /* ---------------- Preview ---------------- */
+
+  function updatePreview() {
+    var days = activeDays();
+    var stations = stationValues();
+    var slotMin = +$('f-slot').value;
+    if (!days.length || !stations.length) {
+      $('preview-body').innerHTML = 'Add at least one day and one station.';
+      return;
+    }
+    var total = 0, perDay = [];
+    days.forEach(function (d) {
+      var n = ST.slotsFor(d, { slotMinutes: slotMin, dayStart: d.start, dayEnd: d.end }).length;
+      perDay.push({ d: d, n: n });
+      total += n * stations.length;
+    });
+    $('preview-body').innerHTML =
+      '<div class="summary-strip" style="margin:0 0 12px">'
+      + '<div><span>Days</span><b>' + days.length + '</b></div>'
+      + '<div><span>Stations</span><b>' + stations.length + '</b></div>'
+      + '<div><span>Slots / day / station</span><b>' + (perDay[0] ? perDay[0].n : 0) + '</b></div>'
+      + '<div><span>Total bookable slots</span><b>' + total + '</b></div>'
+      + '</div>'
+      + perDay.map(function (p) {
+        return '<div class="small muted">' + ST.esc(ST.longDate(p.d.date)) + ' &middot; '
+          + ST.pretty12(p.d.start) + '–' + ST.pretty12(p.d.end) + ' &middot; ' + p.n + ' slots × '
+          + stations.length + ' stations</div>';
+      }).join('');
+  }
+
+  renderDays();
+  checkAdmin();
+
+  /* ---------------- Submit ---------------- */
+
+  $('ev-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    ST.hideAlert(alertBox);
+    var days = activeDays();
+    var stations = stationValues();
+    var name = $('f-name').value.trim();
+
+    if (!name) return ST.showAlert(alertBox, 'error', 'Give the event a name.');
+    if (!days.length) return ST.showAlert(alertBox, 'error', 'Pick at least one day.');
+    if (!stations.length) return ST.showAlert(alertBox, 'error', 'Add at least one station.');
+    var bad = days.filter(function (d) { return ST.toMin(d.end) <= ST.toMin(d.start); });
+    if (bad.length) return ST.showAlert(alertBox, 'error', 'End time must be after start time on ' + ST.longDate(bad[0].date) + '.');
+
+    var payload = {
+      action: 'createEvent',
+      name: name,
+      subtitle: $('f-subtitle').value.trim(),
+      venue: $('f-venue').value.trim(),
+      city: $('f-city').value.trim(),
+      notifyEmail: $('f-notify').value.trim(),
+      replyTo: $('f-replyto').value.trim(),
+      slotMinutes: +$('f-slot').value,
+      dayStart: $('f-dstart').value,
+      dayEnd: $('f-dend').value,
+      days: days,
+      stations: stations.map(function (s, i) { return { id: 'station-' + (i + 1), name: s, sub: '' }; })
+    };
+
+    var btn = $('submit');
+    btn.disabled = true; btn.textContent = 'Creating…';
+    ST.withPassword(function () { return ST.post(payload); }).then(function (d) {
+      location.href = 'event.html?e=' + encodeURIComponent(d.eventId);
+    }).catch(function (err) {
+      ST.showAlert(alertBox, 'error', err.message);
+      btn.disabled = false; btn.textContent = 'Create Event';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+})();
+</script>
+</body>
+</html>

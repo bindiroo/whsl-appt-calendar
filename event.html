@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book an Appointment — Jetty Showtime</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%230F0F0F'/%3E%3Cpath d='M6 21c3.6 0 3.6-3 7.2-3s3.6 3 7.2 3 3.6-3 5.6-3' stroke='%234A8A84' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Crect x='9' y='7' width='14' height='8' rx='1.5' fill='none' stroke='%23C4A067' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div id="hdr"></div>
+
+<section class="hero" id="hero">
+  <div class="wrap">
+    <div class="eyebrow" id="eyebrow">Loading…</div>
+    <h1 id="ev-name">&nbsp;</h1>
+    <div class="meta" id="ev-meta"></div>
+    <div class="hero-actions">
+      <button class="btn btn-tan" id="btn-copy">Copy Booking Link</button>
+      <a class="btn btn-ghost-light" id="btn-admin" href="#" data-role-admin hidden>Manage Bookings</a>
+    </div>
+  </div>
+</section>
+
+<div class="daybar" id="daybar" hidden>
+  <div class="wrap">
+    <div id="daytabs" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    <div class="spacer"></div>
+    <div class="live-dot"><i></i> <span id="livetext">Live availability</span></div>
+  </div>
+</div>
+
+<main class="wrap section">
+  <div id="alert" class="alert" hidden></div>
+  <div id="grid-host"><div class="loading"><div class="spinner"></div>Loading availability…</div></div>
+  <div class="legend" id="legend" hidden>
+    <span><i class="lg-open"></i>Open — click to book</span>
+    <span id="lg-booked"><i class="lg-taken"></i>Booked</span>
+    <span><i class="lg-blocked"></i>Blocked off</span>
+    <span class="mobile-only">Swipe the grid sideways to see every station.</span>
+  </div>
+</main>
+
+<div id="ftr"></div>
+
+<!-- ---------- Booking modal ---------- -->
+<div class="modal-backdrop" id="book-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <button class="modal-close" id="book-x" aria-label="Close">&times;</button>
+      <div class="eyebrow">Book this slot</div>
+      <h2 id="bm-time">&nbsp;</h2>
+      <div class="sub" id="bm-station"></div>
+    </div>
+    <form id="book-form" novalidate>
+      <div class="modal-body">
+        <div id="bm-alert" class="alert" hidden></div>
+        <div class="field">
+          <label for="f-retailer">Retailer / Company <span class="req">*</span></label>
+          <input type="text" id="f-retailer" name="retailer" required autocomplete="organization" placeholder="e.g. Ron Jon Surf Shop">
+          <div class="hint">This is the name that shows on the schedule grid.</div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="f-name">Contact Name <span class="req">*</span></label>
+            <input type="text" id="f-name" name="contactName" required autocomplete="name">
+          </div>
+          <div class="field">
+            <label for="f-phone">Phone</label>
+            <input type="tel" id="f-phone" name="phone" autocomplete="tel">
+          </div>
+        </div>
+        <div class="field">
+          <label for="f-email">Email <span class="req">*</span></label>
+          <input type="email" id="f-email" name="contactEmail" required autocomplete="email">
+          <div class="hint">Confirmation and calendar invite go here.</div>
+        </div>
+        <div class="field">
+          <label for="f-by">Booked By</label>
+          <input type="text" id="f-by" name="bookedBy" placeholder="Sales rep name — or leave blank if self-booking">
+        </div>
+        <div class="field">
+          <label for="f-notes">Notes</label>
+          <textarea id="f-notes" name="notes" placeholder="Anything we should know before the meeting?"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-ghost" id="book-cancel">Cancel</button>
+        <button type="submit" class="btn" id="book-submit">Confirm Appointment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ---------- Detail modal ---------- -->
+<div class="modal-backdrop" id="detail-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <button class="modal-close" id="det-x" aria-label="Close">&times;</button>
+      <div class="eyebrow" id="det-eyebrow">Booked</div>
+      <h2 id="det-title">&nbsp;</h2>
+      <div class="sub" id="det-sub"></div>
+    </div>
+    <div class="modal-body">
+      <div id="det-alert" class="alert" hidden></div>
+      <table class="data" id="det-table" style="border:1px solid var(--line);border-radius:4px"></table>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger" id="det-cancel-booking">Cancel Appointment</button>
+      <button class="btn btn-ghost" id="det-ics">Add to Calendar</button>
+      <button class="btn" id="det-close">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Success modal ---------- -->
+<div class="modal-backdrop" id="done-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head" style="background:#1B3A6B">
+      <div class="eyebrow">You're on the schedule</div>
+      <h2 id="done-title">Appointment Confirmed</h2>
+      <div class="sub" id="done-sub"></div>
+    </div>
+    <div class="modal-body">
+      <p class="small muted" style="margin-top:0">A confirmation email with a calendar invite is on its way. Keep the confirmation number handy if you need to change anything.</p>
+      <table class="data" id="done-table" style="border:1px solid var(--line);border-radius:4px"></table>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="done-ics">Add to Calendar</button>
+      <button class="btn" id="done-close">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Self-cancel (from the link in a confirmation email) ---------- -->
+<div class="modal-backdrop" id="selfcancel-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="eyebrow">Your appointment</div>
+      <h2 id="sc-title">&nbsp;</h2>
+      <div class="sub" id="sc-sub"></div>
+    </div>
+    <div class="modal-body">
+      <div id="sc-alert" class="alert" hidden></div>
+      <table class="data" id="sc-table" style="border:1px solid var(--line);border-radius:4px"></table>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="sc-keep">Keep it</button>
+      <button class="btn btn-danger" id="sc-cancel">Cancel my appointment</button>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+(function () {
+  document.getElementById('hdr').innerHTML = ST.header('');
+  document.getElementById('ftr').innerHTML = ST.footer();
+  ST.applyRoleToChrome();
+
+  var eventId = ST.qs('e');
+  var state = { event: null, bookings: [], blocks: [], activeDay: 0, byKey: {}, blockByKey: {} };
+  var pendingSlot = null;
+  var lastBooking = null;
+  var timer = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var alertBox = $('alert');
+
+  document.getElementById('btn-admin').href = 'admin.html?e=' + encodeURIComponent(eventId);
+
+  /* ---------------- Load ---------------- */
+
+  function load(silent) {
+    if (!eventId) {
+      $('grid-host').innerHTML = '';
+      ST.showAlert(alertBox, 'error', 'No event specified. Head back to the events list and pick one.');
+      return Promise.resolve();
+    }
+    return ST.get({ action: 'event', id: eventId }).then(function (d) {
+      state.event = d.event;
+      state.bookings = d.bookings || [];
+      state.blocks = d.blocks || [];
+      state.byKey = ST.indexBookings(state.bookings);
+      state.blockByKey = ST.indexBlocks(state.blocks);
+      // Reps and admins see who's booked and may cancel. Retailers see neither.
+      state.canSeeNames = ST.canSeeNames();
+      $('det-cancel-booking').classList.toggle('hidden', !state.canSeeNames);
+      $('lg-booked').innerHTML = state.canSeeNames
+        ? '<i class="lg-taken"></i>Booked'
+        : '<i class="lg-anon"></i>Booked \u2014 not available';
+      ST.hideAlert(alertBox);
+      renderHero();
+      renderDays();
+      renderGrid();
+      $('livetext').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }).catch(function (err) {
+      if (!silent) {
+        $('grid-host').innerHTML = '';
+        ST.showAlert(alertBox, 'error', err.message);
+      }
+    });
+  }
+
+  function renderHero() {
+    var ev = state.event;
+    document.title = ev.name + ' — Book an Appointment';
+    $('eyebrow').textContent = ev.subtitle || 'Appointment Booking';
+    $('ev-name').textContent = ev.name;
+    var bits = [ST.dateRange(ev.startDate, ev.endDate)];
+    if (ev.venue) bits.push(ev.venue);
+    if (ev.city) bits.push(ev.city);
+    $('ev-meta').innerHTML = '<strong>' + ST.esc(bits.shift()) + '</strong>'
+      + bits.map(function (x) { return ' &middot; ' + ST.esc(x); }).join('')
+      + ' &middot; ' + ev.slotMinutes + '-minute appointments';
+  }
+
+  function renderDays() {
+    var ev = state.event;
+    var host = $('daytabs');
+    host.innerHTML = '';
+    ev.days.forEach(function (d, i) {
+      var slots = ST.slotsFor(d, ev);
+      var open = 0;
+      slots.forEach(function (t) {
+        ev.stations.forEach(function (s) {
+          var k = ST.slotKey(d.date, s.id, t);
+          if (!state.byKey[k] && !state.blockByKey[k]) open++;
+        });
+      });
+      var btn = ST.el('button', {
+        class: 'daytab' + (i === state.activeDay ? ' active' : ''),
+        type: 'button',
+        onclick: function () { state.activeDay = i; renderDays(); renderGrid(); }
+      });
+      btn.innerHTML = '<b>' + ST.esc(ST.dowName(d.date)) + ' ' + ST.numDate(d.date) + '</b>'
+        + '<span>' + open + ' of ' + (slots.length * ev.stations.length) + ' open</span>';
+      host.appendChild(btn);
+    });
+    $('daybar').hidden = false;
+  }
+
+  function renderGrid() {
+    var ev = state.event;
+    var day = ev.days[state.activeDay];
+    if (!day) return;
+    var slots = ST.slotsFor(day, ev);
+
+    var thead = '<thead><tr><th class="time-col">Time</th>'
+      + ev.stations.map(function (s, i) {
+        return '<th><div class="st-num">Station ' + (i + 1) + '</div>'
+          + '<div class="st-name">' + ST.esc(s.name) + '</div>'
+          + (s.sub ? '<div class="st-sub">' + ST.esc(s.sub) + '</div>' : '')
+          + '</th>';
+      }).join('')
+      + '</tr></thead>';
+
+    var tbody = document.createElement('tbody');
+    slots.forEach(function (t) {
+      var tr = ST.el('tr');
+      tr.appendChild(ST.el('td', { class: 'time-col', text: ST.pretty12(t) }));
+      ev.stations.forEach(function (s) {
+        var key = ST.slotKey(day.date, s.id, t);
+        var booking = state.byKey[key];
+        var block = state.blockByKey[key];
+        var td = ST.el('td', { class: 'slot ' + (booking ? 'slot-taken' : block ? 'slot-blocked' : 'slot-open') });
+        var btn = ST.el('button', { class: 'slot-btn', type: 'button' });
+
+        if (booking && state.canSeeNames) {
+          btn.innerHTML = '<span class="retailer">' + ST.esc(booking.retailer) + '</span>'
+            + '<span class="who">' + ST.esc(booking.contactName || '')
+            + (booking.bookedBy ? ' &middot; via ' + ST.esc(booking.bookedBy) : '') + '</span>';
+          btn.addEventListener('click', function () { openDetail(booking); });
+        } else if (booking) {
+          // Retailer view: the slot is taken, and that is all anyone is told.
+          td.className += ' anon';
+          btn.textContent = 'Booked';
+          btn.disabled = true;
+        } else if (block) {
+          btn.textContent = block.reason || 'Blocked';
+        } else {
+          btn.innerHTML = '<span class="dash">+</span><span class="plus">+ Book ' + ST.pretty12(t) + '</span>';
+          btn.addEventListener('click', function () { openBooking(day, s, t); });
+        }
+        td.appendChild(btn);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    var host = $('grid-host');
+    host.innerHTML = '<div class="grid-scroll"><table class="grid">' + thead + '</table></div>';
+    host.querySelector('table').appendChild(tbody);
+    $('legend').hidden = false;
+  }
+
+  /* ---------------- Booking modal ---------------- */
+
+  function openBooking(day, station, time) {
+    pendingSlot = { day: day, station: station, time: time };
+    $('bm-time').textContent = ST.dowName(day.date) + ' ' + ST.numDate(day.date) + ' · '
+      + ST.pretty12(time) + '–' + ST.pretty12(ST.fromMin(ST.toMin(time) + state.event.slotMinutes));
+    $('bm-station').textContent = station.name + (station.sub ? ' · ' + station.sub : '');
+    ST.hideAlert($('bm-alert'));
+    $('book-modal').hidden = false;
+    setTimeout(function () { $('f-retailer').focus(); }, 60);
+  }
+
+  function closeBooking() { $('book-modal').hidden = true; pendingSlot = null; }
+
+  $('book-x').onclick = closeBooking;
+  $('book-cancel').onclick = closeBooking;
+
+  $('book-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!pendingSlot) return;
+    var f = e.target;
+    var payload = {
+      action: 'book',
+      eventId: state.event.eventId,
+      date: pendingSlot.day.date,
+      stationId: pendingSlot.station.id,
+      startTime: pendingSlot.time,
+      retailer: f.retailer.value.trim(),
+      contactName: f.contactName.value.trim(),
+      contactEmail: f.contactEmail.value.trim(),
+      phone: f.phone.value.trim(),
+      bookedBy: f.bookedBy.value.trim(),
+      notes: f.notes.value.trim()
+    };
+    if (!payload.retailer || !payload.contactName || !payload.contactEmail) {
+      ST.showAlert($('bm-alert'), 'error', 'Retailer, contact name and email are all required.');
+      return;
+    }
+    var btn = $('book-submit');
+    btn.disabled = true; btn.textContent = 'Booking…';
+    ST.hideAlert($('bm-alert'));
+
+    ST.post(payload).then(function (d) {
+      lastBooking = d.booking;
+      closeBooking();
+      f.reset();
+      showDone(d.booking);
+      return load(true);
+    }).catch(function (err) {
+      ST.showAlert($('bm-alert'), 'error', err.message);
+      load(true);
+    }).finally(function () {
+      btn.disabled = false; btn.textContent = 'Confirm Appointment';
+    });
+  });
+
+  /* ---------------- Detail modal ---------------- */
+
+  var detailBooking = null;
+
+  // `full` is true only for the person who just booked. On the public grid we
+  // don't print other people's email/phone/notes.
+  function rowsTable(b, full) {
+    var ev = state.event;
+    var r = [
+      ['When', ST.longDate(b.date) + ', ' + ST.pretty12(b.startTime) + '–' + ST.pretty12(b.endTime)],
+      ['Station', b.stationName],
+      ['Retailer', b.retailer],
+      ['Contact', b.contactName]
+    ];
+    if (full) {
+      r.push(['Email', b.contactEmail]);
+      if (b.phone) r.push(['Phone', b.phone]);
+    }
+    if (b.bookedBy) r.push(['Booked by', b.bookedBy]);
+    if (full && b.notes) r.push(['Notes', b.notes]);
+    if (full) r.push(['Confirmation', b.bookingId]);
+    if (ev.venue || ev.city) r.push(['Where', [ev.venue, ev.city].filter(Boolean).join(', ')]);
+    return r.map(function (p) {
+      return '<tr><th style="width:130px;border-bottom:1px solid var(--line)">' + ST.esc(p[0])
+        + '</th><td>' + ST.esc(p[1]) + '</td></tr>';
+    }).join('');
+  }
+
+  function openDetail(b) {
+    detailBooking = b;
+    $('det-title').textContent = b.retailer;
+    $('det-sub').textContent = ST.longDate(b.date) + ' · ' + ST.pretty12(b.startTime) + ' · ' + b.stationName;
+    $('det-table').innerHTML = rowsTable(b, state.canSeeNames);
+    ST.hideAlert($('det-alert'));
+    $('detail-modal').hidden = false;
+  }
+
+  $('det-x').onclick = $('det-close').onclick = function () { $('detail-modal').hidden = true; };
+
+  $('det-ics').onclick = function () {
+    if (detailBooking) ST.download('appointment.ics', ST.icsFor(state.event, detailBooking), 'text/calendar');
+  };
+
+  $('det-cancel-booking').onclick = function () {
+    if (!detailBooking) return;
+    if (!confirm('Cancel the appointment for ' + detailBooking.retailer + ' on '
+      + ST.longDate(detailBooking.date) + ' at ' + ST.pretty12(detailBooking.startTime)
+      + '?\n\nThe slot will reopen and a cancellation email will be sent.')) return;
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'Cancelling…';
+    ST.post({ action: 'cancel', bookingId: detailBooking.bookingId }).then(function () {
+      $('detail-modal').hidden = true;
+      return load(true);
+    }).catch(function (err) {
+      ST.showAlert($('det-alert'), 'error', err.message);
+    }).finally(function () {
+      btn.disabled = false; btn.textContent = 'Cancel Appointment';
+    });
+  };
+
+  /* ---------------- Success modal ---------------- */
+
+  function showDone(b) {
+    $('done-sub').textContent = ST.longDate(b.date) + ' · ' + ST.pretty12(b.startTime) + ' · ' + b.stationName;
+    $('done-table').innerHTML = rowsTable(b, true);
+    $('done-modal').hidden = false;
+  }
+  $('done-close').onclick = function () { $('done-modal').hidden = true; };
+  $('done-ics').onclick = function () {
+    if (lastBooking) ST.download('appointment.ics', ST.icsFor(state.event, lastBooking), 'text/calendar');
+  };
+
+  /* ---------------- Misc ---------------- */
+
+  $('btn-copy').onclick = function () {
+    var btn = this;
+    var url = location.origin + location.pathname + '?e=' + encodeURIComponent(eventId);
+    var done = function () {
+      btn.textContent = 'Link Copied ✓';
+      setTimeout(function () { btn.textContent = 'Copy Booking Link'; }, 2200);
+    };
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () { prompt('Copy this link:', url); });
+    else prompt('Copy this link:', url);
+  };
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      closeBooking();
+      $('detail-modal').hidden = true;
+      $('done-modal').hidden = true;
+    }
+  });
+
+  [['book-modal', closeBooking], ['detail-modal', null], ['done-modal', null]].forEach(function (p) {
+    var node = $(p[0]);
+    node.addEventListener('click', function (e) {
+      if (e.target === node) { if (p[1]) p[1](); else node.hidden = true; }
+    });
+  });
+
+  /* ---------------- Self-cancel from an emailed link ---------------- */
+
+  function scrubCancelParam() {
+    try {
+      var u = new URL(location.href);
+      u.searchParams.delete('cancel');
+      history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
+    } catch (e) {}
+  }
+
+  function handleSelfCancel() {
+    var tok = ST.qs('cancel');
+    if (!tok) return;
+    ST.get({ action: 'lookup', cancelToken: tok }).then(function (d) {
+      var b = d.booking;
+      if (b.status === 'cancelled') {
+        scrubCancelParam();
+        ST.showAlert(alertBox, 'info', 'That appointment has already been cancelled — the slot is open again.');
+        return;
+      }
+      $('sc-title').textContent = b.retailer;
+      $('sc-sub').textContent = ST.longDate(b.date) + ' \u00b7 ' + ST.pretty12(b.startTime) + ' \u00b7 ' + b.stationName;
+      $('sc-table').innerHTML = [
+        ['When', ST.longDate(b.date) + ', ' + ST.pretty12(b.startTime) + '\u2013' + ST.pretty12(b.endTime)],
+        ['Station', b.stationName],
+        ['Retailer', b.retailer],
+        ['Contact', b.contactName],
+        ['Confirmation', b.bookingId]
+      ].map(function (p) {
+        return '<tr><th style="width:130px;border-bottom:1px solid var(--line)">' + ST.esc(p[0])
+          + '</th><td>' + ST.esc(p[1]) + '</td></tr>';
+      }).join('');
+      $('selfcancel-modal').hidden = false;
+
+      $('sc-keep').onclick = function () {
+        $('selfcancel-modal').hidden = true;
+        scrubCancelParam();
+      };
+      $('sc-cancel').onclick = function () {
+        var btn = this;
+        btn.disabled = true; btn.textContent = 'Cancelling\u2026';
+        ST.post({ action: 'cancel', cancelToken: tok }).then(function () {
+          $('selfcancel-modal').hidden = true;
+          scrubCancelParam();
+          ST.showAlert(alertBox, 'ok', 'Your appointment has been cancelled and the slot is open again. '
+            + 'A confirmation is on its way to your inbox.');
+          return load(true);
+        }).catch(function (err) {
+          ST.showAlert($('sc-alert'), 'error', err.message);
+        }).finally(function () {
+          btn.disabled = false; btn.textContent = 'Cancel my appointment';
+        });
+      };
+    }).catch(function (err) {
+      scrubCancelParam();
+      ST.showAlert(alertBox, 'error', err.message);
+    });
+  }
+
+  load().then(function () {
+    handleSelfCancel();
+    var ms = (window.SHOWTIME_CONFIG && window.SHOWTIME_CONFIG.REFRESH_MS) || 15000;
+    timer = setInterval(function () {
+      if (document.hidden) return;
+      if (!$('book-modal').hidden) return; // don't yank the grid out from under someone mid-form
+      if (!$('selfcancel-modal').hidden) return;
+      load(true);
+    }, ms);
+  });
+})();
+</script>
+</body>
+</html>

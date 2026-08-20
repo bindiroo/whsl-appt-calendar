@@ -1,0 +1,35 @@
+# Jetty Showtime — Netlify config
+# Static site, no build step. Publish the repo root as-is.
+
+[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# config.js must never be cached, or a changed API URL won't take effect.
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=600"
+
+# Pretty short links:  /surf-expo-fall-2026  ->  /event.html?e=surf-expo-fall-2026
+[[redirects]]
+  from = "/e/:id"
+  to = "/event.html?e=:id"
+  status = 200
+
+[[redirects]]
+  from = "/manage/:id"
+  to = "/admin.html?e=:id"
+  status = 200

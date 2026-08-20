@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage Bookings — Jetty Showtime</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%230F0F0F'/%3E%3Cpath d='M6 21c3.6 0 3.6-3 7.2-3s3.6 3 7.2 3 3.6-3 5.6-3' stroke='%234A8A84' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Crect x='9' y='7' width='14' height='8' rx='1.5' fill='none' stroke='%23C4A067' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div id="hdr"></div>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Manage</div>
+    <h1 id="ev-name">Bookings</h1>
+    <div class="meta" id="ev-meta"></div>
+    <div class="hero-actions">
+      <a class="btn btn-tan" id="btn-book" href="#">Back to Booking Grid</a>
+      <button class="btn btn-ghost-light" id="btn-csv">Export CSV</button>
+      <button class="btn btn-ghost-light" id="btn-ics">Export All to Calendar</button>
+    </div>
+  </div>
+</section>
+
+
+<div id="gate" class="gate hidden">
+  <div class="lock">&#128274;</div>
+  <h2>Admin only</h2>
+  <p id="gate-msg">Managing bookings is restricted. Enter the admin password to continue.</p>
+  <button class="btn" id="gate-btn">Enter admin password</button>
+  <p style="margin-top:18px"><a href="index.html" class="small">Back to events</a></p>
+</div>
+
+<main class="wrap section hidden" id="main">
+  <div id="alert" class="alert" hidden></div>
+
+  <div class="summary-strip" id="summary" hidden></div>
+
+  <div class="section-title">All Appointments</div>
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table class="data" id="tbl">
+      <thead><tr>
+        <th>Day</th><th>Time</th><th>Station</th><th>Retailer</th>
+        <th>Contact</th><th>Booked by</th><th>Notes</th><th>Confirmation</th><th></th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="section-title" style="margin-top:38px">Block Off Slots</div>
+  <div class="card">
+    <p class="small muted" style="margin-top:0">Click any open slot to block it — lunch, a walkthrough, a hard stop. Blocked slots can't be booked. Click again to unblock. Booked slots show in green and can't be blocked until they're cancelled.</p>
+    <div id="blockdays" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
+    <div id="blockgrid"></div>
+  </div>
+</main>
+
+<div id="ftr"></div>
+
+<script src="config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+(function () {
+  document.getElementById('hdr').innerHTML = ST.header('');
+  document.getElementById('ftr').innerHTML = ST.footer();
+  ST.applyRoleToChrome();
+
+  var $ = function (id) { return document.getElementById(id); };
+  var eventId = ST.qs('e');
+  var state = { event: null, bookings: [], blocks: [], byKey: {}, blockByKey: {}, activeDay: 0 };
+  var alertBox = $('alert');
+
+  /* ---------------- Admin gate ---------------- */
+  function showGate(msg) {
+    if (msg) document.getElementById('gate-msg').textContent = msg;
+    document.getElementById('gate').classList.remove('hidden');
+    document.getElementById('main').classList.add('hidden');
+    document.querySelector('.hero-actions').classList.add('hidden');
+  }
+  function hideGate() {
+    document.getElementById('gate').classList.add('hidden');
+    document.getElementById('main').classList.remove('hidden');
+    document.querySelector('.hero-actions').classList.remove('hidden');
+  }
+  document.getElementById('gate-btn').onclick = function () {
+    var t = window.prompt('Admin password:', '');
+    if (!t) return;
+    ST.setToken(t.trim());
+    checkAdmin();
+  };
+  function checkAdmin() {
+    return ST.get({ action: 'ping' }).then(function (d) {
+      if (d.role === 'admin') { hideGate(); return true; }
+      // Only wipe a password that was actually rejected. A rep who lands here
+      // is simply not an admin — don't demote them to retailer on the way out.
+      if (d.role === 'public') ST.setToken('');
+      showGate('That password was not recognised. Try again, or ask Cory for the admin password.');
+      return false;
+    }).catch(function (err) {
+      showGate(err.message);
+      return false;
+    });
+  }
+
+
+  $('btn-book').href = 'event.html?e=' + encodeURIComponent(eventId);
+
+  function load() {
+    if (!eventId) {
+      ST.showAlert(alertBox, 'error', 'No event specified.');
+      $('rows').innerHTML = '';
+      return Promise.resolve();
+    }
+    return ST.get({ action: 'event', id: eventId }).then(function (d) {
+      state.event = d.event;
+      state.bookings = (d.bookings || []).slice().sort(function (a, b) {
+        return (a.date + a.startTime + a.stationId).localeCompare(b.date + b.startTime + b.stationId);
+      });
+      state.blocks = d.blocks || [];
+      state.byKey = ST.indexBookings(state.bookings);
+      state.blockByKey = ST.indexBlocks(state.blocks);
+      ST.hideAlert(alertBox);
+      renderHead();
+      renderSummary();
+      renderTable();
+      renderBlockDays();
+      renderBlockGrid();
+    }).catch(function (err) {
+      $('rows').innerHTML = '';
+      ST.showAlert(alertBox, 'error', err.message);
+    });
+  }
+
+  function renderHead() {
+    var ev = state.event;
+    document.title = 'Manage — ' + ev.name;
+    $('ev-name').textContent = ev.name;
+    $('ev-meta').innerHTML = '<strong>' + ST.esc(ST.dateRange(ev.startDate, ev.endDate)) + '</strong>'
+      + ([ev.venue, ev.city].filter(Boolean).length ? ' &middot; ' + ST.esc([ev.venue, ev.city].filter(Boolean).join(', ')) : '');
+  }
+
+  function totalSlots() {
+    var n = 0;
+    state.event.days.forEach(function (d) { n += ST.slotsFor(d, state.event).length; });
+    return n * state.event.stations.length;
+  }
+
+  function renderSummary() {
+    var total = totalSlots();
+    var booked = state.bookings.length;
+    var blocked = state.blocks.length;
+    var open = Math.max(0, total - booked - blocked);
+    var pct = total ? Math.round((booked / total) * 100) : 0;
+    $('summary').hidden = false;
+    $('summary').innerHTML =
+      '<div><span>Booked</span><b>' + booked + '</b></div>'
+      + '<div><span>Open</span><b>' + open + '</b></div>'
+      + '<div><span>Blocked</span><b>' + blocked + '</b></div>'
+      + '<div><span>Total slots</span><b>' + total + '</b></div>'
+      + '<div><span>Filled</span><b>' + pct + '%</b></div>';
+  }
+
+  function renderTable() {
+    var tb = $('rows');
+    tb.innerHTML = '';
+    if (!state.bookings.length) {
+      tb.innerHTML = '<tr><td colspan="9" class="muted" style="padding:34px;text-align:center">No appointments booked yet. Share the booking link to get things moving.</td></tr>';
+      return;
+    }
+    state.bookings.forEach(function (b) {
+      var tr = ST.el('tr');
+      tr.innerHTML =
+        '<td class="nowrap">' + ST.esc(ST.dowName(b.date).slice(0, 3) + ' ' + ST.numDate(b.date)) + '</td>'
+        + '<td class="nowrap">' + ST.pretty12(b.startTime) + '</td>'
+        + '<td>' + ST.esc(b.stationName) + '</td>'
+        + '<td><strong>' + ST.esc(b.retailer) + '</strong></td>'
+        + '<td>' + ST.esc(b.contactName) + '<br><span class="small muted">'
+        + ST.esc(b.contactEmail) + (b.phone ? ' &middot; ' + ST.esc(b.phone) : '') + '</span></td>'
+        + '<td>' + ST.esc(b.bookedBy || '—') + '</td>'
+        + '<td class="small">' + ST.esc(b.notes || '') + '</td>'
+        + '<td class="mono nowrap">' + ST.esc(b.bookingId) + '</td>';
+      var td = ST.el('td', { class: 'right nowrap' });
+      td.appendChild(ST.el('button', {
+        class: 'btn btn-danger btn-sm', type: 'button', text: 'Cancel',
+        onclick: function () {
+          if (!confirm('Cancel ' + b.retailer + ' — ' + ST.longDate(b.date) + ' ' + ST.pretty12(b.startTime) + '?')) return;
+          this.disabled = true; this.textContent = '…';
+          ST.withPassword(function () { return ST.post({ action: 'cancel', bookingId: b.bookingId }); })
+            .then(load)
+            .catch(function (err) { ST.showAlert(alertBox, 'error', err.message); });
+        }
+      }));
+      tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+  }
+
+  /* ---------------- Block grid ---------------- */
+
+  function renderBlockDays() {
+    var host = $('blockdays');
+    host.innerHTML = '';
+    state.event.days.forEach(function (d, i) {
+      host.appendChild(ST.el('button', {
+        type: 'button',
+        class: 'daytab' + (i === state.activeDay ? ' active' : ''),
+        html: '<b>' + ST.dowName(d.date) + ' ' + ST.numDate(d.date) + '</b>',
+        onclick: function () { state.activeDay = i; renderBlockDays(); renderBlockGrid(); }
+      }));
+    });
+  }
+
+  function renderBlockGrid() {
+    var ev = state.event;
+    var day = ev.days[state.activeDay];
+    if (!day) return;
+    var slots = ST.slotsFor(day, ev);
+
+    var head = '<thead><tr><th class="time-col">Time</th>'
+      + ev.stations.map(function (s, i) {
+        return '<th><div class="st-num">Station ' + (i + 1) + '</div><div class="st-name">' + ST.esc(s.name) + '</div></th>';
+      }).join('') + '</tr></thead>';
+
+    var host = $('blockgrid');
+    host.innerHTML = '<div class="grid-scroll"><table class="grid">' + head + '</table></div>';
+    var table = host.querySelector('table');
+    var tbody = ST.el('tbody');
+
+    slots.forEach(function (t) {
+      var tr = ST.el('tr');
+      tr.appendChild(ST.el('td', { class: 'time-col', text: ST.pretty12(t) }));
+      ev.stations.forEach(function (s) {
+        var key = ST.slotKey(day.date, s.id, t);
+        var b = state.byKey[key], blk = state.blockByKey[key];
+        var td = ST.el('td', { class: 'slot ' + (b ? 'slot-taken' : blk ? 'slot-blocked' : 'slot-open') });
+        var btn = ST.el('button', { class: 'slot-btn', type: 'button' });
+        if (b) {
+          btn.innerHTML = '<span class="retailer">' + ST.esc(b.retailer) + '</span>';
+          btn.disabled = true;
+          btn.style.cursor = 'not-allowed';
+        } else {
+          btn.innerHTML = blk
+            ? '<span>Blocked</span>'
+            : '<span class="dash">+</span><span class="plus">Block</span>';
+          btn.addEventListener('click', function () {
+            btn.disabled = true;
+            ST.withPassword(function () { return ST.post({
+              action: 'toggleBlock', eventId: ev.eventId, date: day.date,
+              stationId: s.id, startTime: t, reason: 'Blocked'
+            }); }).then(load).catch(function (err) {
+              ST.showAlert(alertBox, 'error', err.message);
+              btn.disabled = false;
+            });
+          });
+        }
+        td.appendChild(btn);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+  }
+
+  /* ---------------- Exports ---------------- */
+
+  $('btn-csv').onclick = function () {
+    if (!state.event) return;
+    var rows = [['Day', 'Date', 'Start', 'End', 'Station', 'Retailer', 'Contact Name',
+      'Email', 'Phone', 'Booked By', 'Notes', 'Confirmation', 'Booked At']];
+    state.bookings.forEach(function (b) {
+      rows.push([ST.dowName(b.date), b.date, ST.pretty12(b.startTime), ST.pretty12(b.endTime),
+        b.stationName, b.retailer, b.contactName, b.contactEmail, b.phone, b.bookedBy,
+        b.notes, b.bookingId, b.createdAt]);
+    });
+    ST.download(state.event.eventId + '-bookings.csv', ST.csv(rows), 'text/csv;charset=utf-8');
+  };
+
+  $('btn-ics').onclick = function () {
+    if (!state.event || !state.bookings.length) return;
+    var parts = state.bookings.map(function (b) {
+      var one = ST.icsFor(state.event, b).split('\r\n');
+      return one.slice(one.indexOf('BEGIN:VEVENT'), one.indexOf('END:VEVENT') + 1).join('\r\n');
+    });
+    var all = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Jetty//Showtime//EN']
+      .concat(parts).concat(['END:VCALENDAR']).join('\r\n');
+    ST.download(state.event.eventId + '-appointments.ics', all, 'text/calendar');
+  };
+
+  checkAdmin().then(function (okAdmin) { if (okAdmin) load(); });
+})();
+</script>
+</body>
+</html>
