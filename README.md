@@ -15,6 +15,8 @@ Built to replace the manual planning spreadsheet — and to make Calendly unnece
 
 Three levels, enforced on the server — not just hidden in the page.
 
+> **As shipped, the admin and rep passwords are both `jetty5dyol`.** Because the server checks the admin password first, that means anyone who signs in is an **admin** — so in practice you're running two tiers, not three: retailers with no password, and staff with full access. Retailers are unaffected either way. To get the limited rep tier back, run `setPasswords('adminOnly', 'repOnly')` in the Apps Script editor and re-deploy.
+
 | | Retailer | Rep | Admin |
 |---|:--:|:--:|:--:|
 | Password needed | none | rep password | admin password |
@@ -30,7 +32,7 @@ Three levels, enforced on the server — not just hidden in the page.
 
 A retailer sees a taken slot as a grey **Booked** cell and nothing more. Names, emails, phone numbers and notes are stripped out of the API response before it leaves the server, so there is nothing to dig out of the page source either.
 
-**Getting reps in.** Share the rep magic link — run `showPasswords()` in the Apps Script editor and it prints one:
+**Getting reps in.** Share the staff magic link — run `showPasswords()` in the Apps Script editor and it prints one:
 
 ```
 https://your-site.netlify.app/event.html?e=surf-expo-fall-2026&k=<rep-password>
@@ -65,18 +67,20 @@ Netlify also serves short links: `/e/<event-id>` and `/manage/<event-id>`.
 4. Click **+** next to *Files*, add a script file named `Seed`, and paste in [`apps-script/Seed.gs`](apps-script/Seed.gs). Save.
 5. In the function dropdown at the top, choose **`setup`** and press **Run**. Approve the permissions prompt (it will warn that the app isn't verified — that's normal for your own script; choose *Advanced → Go to …*).
 
-You should now see three tabs in the sheet (**Events**, **Bookings**, **Blocks**), and the execution log will print your two passwords:
+You should now see three tabs in the sheet (**Events**, **Bookings**, **Blocks**), and the execution log will confirm your staff password:
 
 ```
-  ADMIN password : swell-inlet-4821
-  REP password   : tide-sandbar-9037
+  STAFF password : jetty5dyol
 ```
 
-Write them down. `showPasswords()` prints them again any time. To pick your own instead:
+`showPasswords()` prints it again any time. To change it:
 
 ```js
-setPasswords('somethingYouWillRemember', 'repPasswordHere')
+setPasswords('newAdminPassword', 'newRepPassword')   // two tiers
+useDefaultPasswords()                                 // back to jetty5dyol for both
 ```
+
+If you'd already run `setup()` before and it generated something random, `useDefaultPasswords()` resets both.
 
 ### 2. Deploy the API
 

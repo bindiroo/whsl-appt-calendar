@@ -324,7 +324,47 @@ process.on('exit', stopMock);
   await raw.waitForSelector('#alert:not([hidden])', { timeout: 6000 });
   ok(/finish the setup/i.test(await raw.locator('#list').innerText()), 'shows setup instructions');
 
-  head('20. No JS errors anywhere');
+  head('20. Shared staff password (the shipped configuration)');
+  // Boot a second mock where ADMIN and REP are the same string, exactly as
+  // setup() leaves them, and confirm nothing degrades to the retailer view.
+  const SHARED = 'jetty5dyol';
+  const P2 = PORT + 1;
+  const shared = spawn(process.execPath, [__dirname + '/mock-server.js'], {
+    env: { ...process.env, PORT: String(P2), ADMIN_TOKEN: SHARED, REP_TOKEN: SHARED },
+    stdio: 'ignore'
+  });
+  const B2 = 'http://localhost:' + P2, API2 = B2 + '/api';
+  for (let i = 0; i < 50; i++) {
+    try { if ((await fetch(API2 + '?action=ping')).ok) break; } catch (e) {}
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  try {
+    const who = await (await fetch(API2 + '?action=ping&token=' + SHARED)).json();
+    ok(who.role === 'admin', 'one shared password signs you in as admin');
+    const noPw = await (await fetch(API2 + '?action=event&id=surf-expo-fall-2026')).json();
+    ok(noPw.role === 'public' && !/17th Street/.test(JSON.stringify(noPw)),
+      'retailers with no password still see nothing but Open / Booked');
+    const staff = await (await fetch(
+      API2 + '?action=event&id=surf-expo-fall-2026&token=' + SHARED)).json();
+    ok(/17th Street/.test(JSON.stringify(staff)), 'staff see retailer names');
+    const mk = await (await fetch(API2, { method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'createEvent', token: SHARED, name: 'Shared Pw Show',
+        days: [{ date: '2027-03-01' }], stations: [{ id: 'station-1', name: 'A' }] }) })).json();
+    ok(mk.ok === true, 'staff can create events (the rep limit is gone by design)');
+    const wrong = await (await fetch(API2 + '?action=ping&token=nope')).json();
+    ok(wrong.role === 'public', 'a wrong password is still just a retailer');
+
+    const { page: sp } = await ctxFor(null);
+    await sp.goto(B2 + '/event.html?e=surf-expo-fall-2026&k=' + SHARED);
+    await sp.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+    ok(/admin/i.test(await sp.locator('#role-chip').innerText()), 'header shows the Admin badge');
+    ok(!(await sp.locator('[data-role-admin]').first().isHidden()), 'admin nav is available');
+  } finally {
+    try { shared.kill('SIGKILL'); } catch (e) {}
+  }
+
+  head('21. No JS errors anywhere');
   ok(errors.length === 0, 'clean console' + (errors.length ? ': ' + errors.join(' | ') : ''));
 
   await browser.close();

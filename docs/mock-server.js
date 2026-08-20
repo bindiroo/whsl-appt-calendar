@@ -50,8 +50,10 @@ db.events.push({
     createdAt: '2026-08-01T12:00:00Z', cancelToken: 'seedtok-' + retailer.replace(/\W/g, '').toLowerCase()
   }));
 
-const ADMIN_TOKEN = 'admin-pass-1234';
-const REP_TOKEN = 'rep-pass-5678';
+// Defaults keep the two tiers distinct so the role tests stay meaningful.
+// PW_SHARED=1 mirrors the shipped config, where both are the same string.
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin-pass-1234';
+const REP_TOKEN = process.env.REP_TOKEN || 'rep-pass-5678';
 const NEED = 'PASSWORD_REQUIRED: You need the ';
 
 const roleFor = (tok) => {

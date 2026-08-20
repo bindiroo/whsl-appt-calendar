@@ -45,6 +45,11 @@
  *    · create and edit events
  *    · block off slots
  *    · export bookings
+ *
+ *  AS SHIPPED both staff passwords are the same value, so in
+ *  practice there are two tiers, not three: retailers with no
+ *  password, and staff who are full admins. Set the two
+ *  passwords to different values to get the rep tier back.
  *  ---------------------------------------------------------
  * ============================================================
  */
@@ -67,6 +72,18 @@ var BOOKING_COLS = [
 
 var BLOCK_COLS = ['block_id', 'event_id', 'date', 'station_id', 'start_time', 'reason', 'created_at'];
 
+/*
+ *  The password both staff roles start with. Change it here before running
+ *  setup(), or change it later from the editor with:
+ *      setPasswords('newAdminPassword', 'newRepPassword')
+ *
+ *  NOTE: while ADMIN and REP are the same string, anyone who signs in is an
+ *  ADMIN — roleFor_ checks the admin password first. That means every rep can
+ *  also create events, edit them and block slots. Give them different values
+ *  if you want the rep tier to be limited again.
+ */
+var DEFAULT_PASSWORD = 'jetty5dyol';
+
 var TEXT_COLS_ = {
   'Events': ['start_date', 'end_date', 'day_start', 'day_end'],
   'Bookings': ['date', 'start_time', 'end_time'],
@@ -85,36 +102,59 @@ function setup() {
 
   var props = PropertiesService.getScriptProperties();
   if (!String(props.getProperty('ADMIN_TOKEN') || '').trim()) {
-    props.setProperty('ADMIN_TOKEN', makePassword_());
+    props.setProperty('ADMIN_TOKEN', DEFAULT_PASSWORD);
   }
   if (!String(props.getProperty('REP_TOKEN') || '').trim()) {
-    props.setProperty('REP_TOKEN', makePassword_());
+    props.setProperty('REP_TOKEN', DEFAULT_PASSWORD);
   }
   showPasswords();
   return 'ok';
+}
+
+/**
+ * Force both passwords back to DEFAULT_PASSWORD.
+ * Use this if setup() already ran and set something else.
+ */
+function useDefaultPasswords() {
+  return setPasswords(DEFAULT_PASSWORD, DEFAULT_PASSWORD);
 }
 
 /** Prints the current passwords. Run any time you forget them. */
 function showPasswords() {
   var props = PropertiesService.getScriptProperties();
   var site = String(props.getProperty('SITE_URL') || '').replace(/\/+$/, '');
+  var admin = props.getProperty('ADMIN_TOKEN');
+  var rep = props.getProperty('REP_TOKEN');
   var lines = [
     '',
     '=========================================================',
     '  JETTY — APPOINTMENT BOOKING · passwords',
-    '=========================================================',
-    '  ADMIN password : ' + props.getProperty('ADMIN_TOKEN'),
-    '  REP password   : ' + props.getProperty('REP_TOKEN'),
-    '',
-    '  Admin password unlocks New Event and Manage.',
-    '  Rep password reveals retailer names in the grid.',
-    '  Retailers need no password at all.',
-    ''
+    '========================================================='
   ];
+  if (admin && admin === rep) {
+    lines.push('  STAFF password : ' + admin);
+    lines.push('');
+    lines.push('  Admin and rep are set to the same password, so anyone');
+    lines.push('  who signs in gets FULL ADMIN — they can see retailer');
+    lines.push('  names, cancel bookings, block slots AND create events.');
+    lines.push('  Retailers still need no password and still see only');
+    lines.push('  Open / Booked.');
+    lines.push('');
+    lines.push('  To split them apart again:');
+    lines.push("    setPasswords('adminOnlyPassword', 'repPassword')");
+  } else {
+    lines.push('  ADMIN password : ' + admin);
+    lines.push('  REP password   : ' + rep);
+    lines.push('');
+    lines.push('  Admin password unlocks New Event and Manage.');
+    lines.push('  Rep password reveals retailer names in the grid.');
+    lines.push('  Retailers need no password at all.');
+  }
+  lines.push('');
   if (site) {
-    lines.push('  Rep magic link (share with your reps):');
+    lines.push('  Staff magic link (share with your reps):');
     lines.push('    ' + site + '/event.html?e=<event-id>&k='
-      + encodeURIComponent(props.getProperty('REP_TOKEN')));
+      + encodeURIComponent(rep));
   } else {
     lines.push('  Run setSiteUrl(\'https://your-site.netlify.app\') to get');
     lines.push('  a ready-made rep magic link and cancellation links in emails.');
@@ -140,6 +180,7 @@ function setSiteUrl(url) {
   return showPasswords();
 }
 
+/** Handy if you ever want a random password instead of a chosen one. */
 function makePassword_() {
   // Readable, no ambiguous characters, still ~10^13 combinations.
   var words = ['surf', 'swell', 'tide', 'reef', 'dune', 'jetty', 'shore', 'drift',
