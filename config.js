@@ -11,7 +11,7 @@
    ============================================================ */
 
 window.SHOWTIME_CONFIG = {
-  API_URL: 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE',
+  API_URL: 'https://script.google.com/macros/s/AKfycbzsAD0H9JOpZeUn3UFmhIivOSoYZH2tPSLpxXFlzafy3kTKq3W-6ZEZY4Y13dVKBfJS/exec',
 
   // How often the booking grid re-checks for other people's bookings
   // while someone has the page open (milliseconds).
