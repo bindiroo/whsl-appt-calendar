@@ -171,7 +171,8 @@ function handle(action, body) {
   throw new Error('Unknown action: ' + action);
 }
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
 
 http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');

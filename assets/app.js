@@ -1,5 +1,5 @@
 /* ============================================================
-   JETTY SHOWTIME — shared client helpers
+   JETTY — booking client helpers
    ============================================================ */
 
 (function (global) {
@@ -209,7 +209,7 @@
     var dt = function (t) { return b.date.replace(/-/g, '') + 'T' + t.replace(':', '') + '00'; };
     var esc2 = function (s) { return String(s || '').replace(/([,;\\])/g, '\\$1').replace(/\n/g, '\\n'); };
     return [
-      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Jetty//Showtime//EN',
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Jetty//Appointments//EN',
       'BEGIN:VEVENT',
       'UID:' + b.bookingId + '@showtime',
       'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z',
@@ -239,7 +239,9 @@
 
   function header(active) {
     return '<header class="site-header"><div class="wrap">'
-      + '<a class="brand" href="index.html">JETTY <span>SHOWTIME</span></a>'
+      + '<a class="brand" href="index.html" aria-label="Jetty">'
+      + '<img src="assets/brand/jetty-logo-white.png" alt="Jetty">'
+      + '</a>'
       + '<nav class="header-nav">'
       + '<a href="index.html"' + (active === 'events' ? ' class="active"' : '') + '>Events</a>'
       + '<a href="new.html" data-role-admin hidden' + (active === 'new' ? ' class="active"' : '') + '>New Event</a>'
@@ -290,8 +292,11 @@
 
   function footer() {
     return '<footer class="site-footer"><div class="wrap">'
+      + '<img src="assets/brand/otis-coin-dark.png" alt="">'
+      + '<div>'
       + '<div class="tag">Draw Your Own Line&reg;</div>'
-      + '<div style="margin-top:6px">Jetty Showtime &middot; appointment booking for trade shows and sales meetings.</div>'
+      + '<div class="est">Established 2003 &middot; www.JettyLife.com</div>'
+      + '</div>'
       + '</div></footer>';
   }
 

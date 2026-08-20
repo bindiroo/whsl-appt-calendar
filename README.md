@@ -1,10 +1,11 @@
-# Jetty Showtime
+# Jetty — Wholesale Appointment Calendar
 
 A live appointment-booking site for trade shows and sales meetings. One link shows a grid of days × stations × time slots; click an open slot to book it. Bookings land in a Google Sheet you own, and confirmation emails go out from your own Google account.
 
 Built to replace the manual planning spreadsheet — and to make Calendly unnecessary.
 
 - **Front end:** plain HTML/CSS/JS, no build step, hosted on Netlify
+- **Branding:** 2025 Jetty Brand Guide — Graphite / Deep Sea / Atlantic / Cloud / Grey Sky
 - **Back end:** Google Apps Script Web App writing to a Google Sheet
 - **Cost:** $0
 
@@ -58,7 +59,7 @@ Netlify also serves short links: `/e/<event-id>` and `/manage/<event-id>`.
 
 ### 1. Create the database sheet
 
-1. Go to [sheets.new](https://sheets.new) and name it something like **Jetty Showtime — Bookings**.
+1. Go to [sheets.new](https://sheets.new) and name it something like **Jetty Appointments — Bookings**.
 2. **Extensions → Apps Script.**
 3. Delete whatever is in `Code.gs` and paste in the contents of [`apps-script/Code.gs`](apps-script/Code.gs). Save.
 4. Click **+** next to *Files*, add a script file named `Seed`, and paste in [`apps-script/Seed.gs`](apps-script/Seed.gs). Save.
@@ -162,6 +163,22 @@ node docs/mock-server.js     # or run the mock alone: http://localhost:8787
 `docs/test.js` boots a throwaway copy of the mock on its own port, so it starts from identical state every run and needs nothing set up first. The mock stands in for Apps Script — three roles included — so you can work on the front end without deploying; its test passwords are `admin-pass-1234` and `rep-pass-5678`. Nothing in `docs/` ships to production.
 
 The suite checks permissions at the API level, not just in the UI — it calls the endpoints directly as each role to confirm the server, not the stylesheet, is what's keeping retailers out.
+
+## Branding
+
+Colours come straight from the 2025 Brand Guide and live as CSS custom properties at the top of `assets/styles.css`:
+
+| Token | Hex | Use |
+|---|---|---|
+| `--graphite` | `#252933` | Banner, headings, primary buttons |
+| `--deep-sea` | `#43575E` | Accents, booked-slot marker, focus rings |
+| `--atlantic` | `#586D72` | Higher-contrast variant on dark grounds |
+| `--cloud` | `#F6F7F7` | Page background, reversed text |
+| `--grey-sky` | `#EDECED` | Time column, anonymous booked cells |
+
+Logo files are in `assets/brand/`, extracted from the supplied artwork onto transparency so they sit on any ground: `jetty-logo-white.png` (banner), `otis-coin-white.png`, `otis-coin-dark.png` (favicon, footer, password gate), and `bathymetry.png` — the seamless map pattern, lightened to a whisper and tiled behind the page.
+
+**Fonts.** The guide specifies Gilroy for headlines and Blacker Text for body. Both are licensed, so the CSS asks for them first and falls back to Montserrat and Petrona from Google Fonts. If you have the webfont files, drop them in `assets/fonts/` and uncomment the `@font-face` block at the top of `assets/styles.css` — nothing else needs to change.
 
 ---
 

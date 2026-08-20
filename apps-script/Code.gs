@@ -101,7 +101,7 @@ function showPasswords() {
   var lines = [
     '',
     '=========================================================',
-    '  JETTY SHOWTIME — passwords',
+    '  JETTY — APPOINTMENT BOOKING · passwords',
     '=========================================================',
     '  ADMIN password : ' + props.getProperty('ADMIN_TOKEN'),
     '  REP password   : ' + props.getProperty('REP_TOKEN'),
@@ -838,7 +838,7 @@ function row_(k, v) {
 function buildIcs_(event, booking) {
   var dt = function (t) { return booking.date.replace(/-/g, '') + 'T' + t.replace(':', '') + '00'; };
   return [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Jetty//Showtime//EN', 'CALSCALE:GREGORIAN',
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Jetty//Appointments//EN', 'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
     'UID:' + booking.bookingId + '@showtime',
     'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z',

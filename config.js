@@ -1,5 +1,5 @@
 /* ============================================================
-   JETTY SHOWTIME — site configuration
+   JETTY — site configuration
    ------------------------------------------------------------
    The ONLY thing you need to edit here is API_URL.
 
