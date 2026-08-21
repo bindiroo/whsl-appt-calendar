@@ -239,6 +239,44 @@
     ].join('\r\n');
   }
 
+  /* ---------------- Sharing links ----------------
+     Built from the stylesheet's own URL rather than location.pathname, so a
+     link copied from the pretty form (/e/surf-expo) comes out canonical
+     instead of /e/surf-expo?e=surf-expo. */
+
+  function siteBase() {
+    var link = document.querySelector('link[href*="assets/styles.css"]');
+    var base = link && link.href
+      ? link.href.replace(/\/assets\/styles\.css.*$/, '')
+      : location.origin;
+    return base.replace(/\/+$/, '');
+  }
+
+  /* Pass a token ONLY for a staff link. The retailer link must never carry one. */
+  function eventUrl(eventId, staffToken) {
+    return siteBase() + '/event.html?e=' + encodeURIComponent(eventId)
+      + (staffToken ? '&k=' + encodeURIComponent(staffToken) : '');
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () {
+        window.prompt('Copy this link:', text);
+      });
+    }
+    window.prompt('Copy this link:', text);
+    return Promise.resolve();
+  }
+
+  /* Copy `text`, then flash confirmation on the button that was clicked. */
+  function copyButton(btn, text, done) {
+    var was = btn.textContent;
+    return copyText(text).then(function () {
+      btn.textContent = done || 'Copied \u2713';
+      setTimeout(function () { btn.textContent = was; }, 2400);
+    });
+  }
+
   function slotKey(date, stationId, time) { return date + '|' + stationId + '|' + time; }
 
   function indexBookings(bookings) {
@@ -255,12 +293,12 @@
 
   function header(active) {
     return '<header class="site-header"><div class="wrap">'
-      + '<a class="brand" href="index.html" aria-label="Jetty">'
-      + '<img src="assets/brand/jetty-logo-white.png" alt="Jetty">'
+      + '<a class="brand" href="/index.html" aria-label="Jetty">'
+      + '<img src="/assets/brand/jetty-logo-white.png" alt="Jetty">'
       + '</a>'
       + '<nav class="header-nav">'
-      + '<a href="index.html"' + (active === 'events' ? ' class="active"' : '') + '>Events</a>'
-      + '<a href="new.html" data-role-admin hidden' + (active === 'new' ? ' class="active"' : '') + '>New Event</a>'
+      + '<a href="/index.html"' + (active === 'events' ? ' class="active"' : '') + '>Events</a>'
+      + '<a href="/new.html" data-role-admin hidden' + (active === 'new' ? ' class="active"' : '') + '>New Event</a>'
       + '<span class="role-chip" id="role-chip" hidden></span>'
       + '<button type="button" class="link-btn" id="role-btn"></button>'
       + '</nav></div></header>';
@@ -308,7 +346,7 @@
 
   function footer() {
     return '<footer class="site-footer"><div class="wrap">'
-      + '<img src="assets/brand/otis-coin-dark.png" alt="">'
+      + '<img src="/assets/brand/otis-coin-dark.png" alt="">'
       + '<div>'
       + '<div class="tag">Draw Your Own Line&reg;</div>'
       + '<div class="est">Established 2003 &middot; www.JettyLife.com</div>'
@@ -323,6 +361,7 @@
     longDate: longDate, dateRange: dateRange, slotsFor: slotsFor,
     el: el, qs: qs, esc: esc, showAlert: showAlert, hideAlert: hideAlert,
     csv: csv, download: download, icsFor: icsFor,
+    siteBase: siteBase, eventUrl: eventUrl, copyText: copyText, copyButton: copyButton,
     getToken: getToken, setToken: setToken, signOut: signOut,
     getRole: getRole, isAdmin: isAdmin, canSeeNames: canSeeNames,
     needsPassword: needsPassword, passwordMessage: passwordMessage,

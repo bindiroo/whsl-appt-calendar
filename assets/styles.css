@@ -518,3 +518,9 @@ table.data tr:hover td { background: #FAFBFB; }
   .brand img { height: 26px; }
   .site-header .wrap { min-height: 58px; }
 }
+
+/* A quiet reassurance beside the share button on the staff view. */
+.copy-note {
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--sea-pale); align-self: center;
+}

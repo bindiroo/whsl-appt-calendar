@@ -454,10 +454,15 @@ function getEventBundle_(eventId, role) {
   var event = shapeEvent_(ev);
   if (role !== 'admin') { event.notifyEmail = ''; event.replyTo = ''; }
 
-  return {
+  var out = {
     ok: true, role: role, event: event, bookings: bookings, blocks: blocks,
     fetchedAt: new Date().toISOString()
   };
+  // Only an admin gets the rep password back, so the Manage page can offer a
+  // ready-made staff link. A rep must never be handed it — a rep copying a
+  // link is copying the RETAILER one.
+  if (role === 'admin') out.repToken = prop_('REP_TOKEN');
+  return out;
 }
 
 /** Used by the "cancel my appointment" link in a confirmation email. */

@@ -439,6 +439,106 @@ process.on('exit', stopMock);
     'retailer grid shows the new station name');
   ok((await seeIt.locator('table.grid thead th').count()) === 6, 'and the added station column');
 
+  head('20c. Copying a link to send to a retailer');
+  const readClip = (pg) => pg.evaluate(() => navigator.clipboard.readText());
+  const grantClip = async (pg) => {
+    await pg.context().grantPermissions(['clipboard-read', 'clipboard-write'],
+      { origin: B });
+  };
+
+  // --- as a rep: the button must hand over the RETAILER link, never theirs ---
+  const { page: repCopy } = await ctxFor(REP);
+  await grantClip(repCopy);
+  await repCopy.goto(B + '/event.html?e=surf-expo-fall-2026');
+  await repCopy.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  ok(/retailer link/i.test(await repCopy.locator('#btn-copy').innerText()),
+    'button is labelled for the rep who is sending it');
+  ok(!(await repCopy.locator('#copy-note').isHidden()), 'says it carries no password');
+  await repCopy.click('#btn-copy');
+  await repCopy.waitForTimeout(400);
+  const repLink = await readClip(repCopy);
+  ok(!/[?&]k=/.test(repLink), 'copied link contains NO password: ' + repLink);
+  ok(!repLink.includes(REP), 'the rep password is not in it anywhere');
+  ok(/event\.html\?e=surf-expo-fall-2026$/.test(repLink), 'and it is the canonical retailer link');
+  ok(/copied/i.test(await repCopy.locator('#btn-copy').innerText()), 'button confirms the copy');
+  await repCopy.screenshot({ path: shots + '13-rep-copy.png', fullPage: true });
+
+  // --- the copied link really does open as a retailer ---
+  const { page: asRetailer } = await ctxFor(null);
+  await asRetailer.goto(repLink);
+  await asRetailer.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  ok(await asRetailer.locator('td.slot-taken .retailer').count() === 0,
+    'someone opening it sees no retailer names');
+  ok(await asRetailer.locator('#role-chip').isHidden(), 'and gets no staff badge');
+
+  // --- copying from the pretty URL must not produce a doubled query ---
+  const { page: pretty } = await ctxFor(REP);
+  await grantClip(pretty);
+  await pretty.goto(B + '/e/surf-expo-fall-2026');
+  await pretty.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  await pretty.click('#btn-copy');
+  await pretty.waitForTimeout(400);
+  const prettyLink = await readClip(pretty);
+  ok(prettyLink === repLink, 'same canonical link from the short URL: ' + prettyLink);
+
+  // --- a retailer's own copy button is still the same safe link ---
+  const { page: pubCopy } = await ctxFor(null);
+  await grantClip(pubCopy);
+  await pubCopy.goto(B + '/event.html?e=surf-expo-fall-2026');
+  await pubCopy.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  ok(await pubCopy.locator('#copy-note').isHidden(), 'no staff note for a retailer');
+  await pubCopy.click('#btn-copy');
+  await pubCopy.waitForTimeout(400);
+  ok((await readClip(pubCopy)) === repLink, 'retailers copy the same link');
+
+  // --- admin gets both, and the staff one carries the REP password ---
+  const { page: admCopy } = await ctxFor(ADMIN);
+  await grantClip(admCopy);
+  await admCopy.goto(B + '/admin.html?e=surf-expo-fall-2026');
+  await admCopy.waitForSelector('#rows tr td', { timeout: 8000 });
+  await admCopy.click('#btn-copy-staff');
+  await admCopy.waitForTimeout(400);
+  const staffLink = await readClip(admCopy);
+  ok(staffLink.includes('k=' + REP), 'staff link carries the REP password');
+  ok(!staffLink.includes(ADMIN), 'and NOT the admin password');
+  await admCopy.click('#btn-copy-retailer');
+  await admCopy.waitForTimeout(400);
+  ok((await readClip(admCopy)) === repLink, 'admin can also grab the plain retailer link');
+
+  // --- the staff link actually confers the rep view ---
+  const { page: viaStaff } = await ctxFor(null);
+  await viaStaff.goto(staffLink);
+  await viaStaff.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  ok(await viaStaff.locator('td.slot-taken .retailer').count() > 0, 'staff link shows names');
+  ok(/rep/i.test(await viaStaff.locator('#role-chip').innerText()), 'and signs you in as a rep');
+
+  // --- a rep must not be handed the rep password by the API ---
+  const repBundle = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: REP });
+  ok(!repBundle.repToken, 'the API does not return repToken to a rep');
+  const pubBundle = await apiGet({ action: 'event', id: 'surf-expo-fall-2026' });
+  ok(!pubBundle.repToken, 'nor to a retailer');
+
+  head('20d. Pretty links load their assets');
+  // /e/<id> is served by a rewrite, so the browser URL stays one level deep.
+  // Any relative asset path would resolve to /e/assets/... and 404, leaving an
+  // unstyled dead page — which is what a retailer would have received.
+  for (const [label, path] of [
+    ['/e/<id>', '/e/surf-expo-fall-2026'],
+    ['/manage/<id>', '/manage/surf-expo-fall-2026'],
+    ['/edit/<id>', '/edit/surf-expo-fall-2026']
+  ]) {
+    const { page: pp } = await ctxFor(ADMIN);
+    const bad = [];
+    pp.on('response', (r) => { if (r.status() >= 400) bad.push(r.status() + ' ' + r.url()); });
+    await pp.goto(B + path);
+    await pp.waitForTimeout(900);
+    ok(bad.length === 0, label + ' loads every asset' + (bad.length ? ': ' + bad.join(', ') : ''));
+    const styled = await pp.evaluate(() =>
+      getComputedStyle(document.querySelector('.site-header')).backgroundColor);
+    ok(styled === 'rgb(37, 41, 51)', label + ' is actually styled (header is Graphite)');
+    ok(await pp.evaluate(() => typeof window.ST === 'object'), label + ' ran its JavaScript');
+  }
+
   head('21. A blocked request explains itself');
   // Simulate exactly what Cory's ad blocker did: kill the request outright.
   const { page: blk } = await ctxFor(null);

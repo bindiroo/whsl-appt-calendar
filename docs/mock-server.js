@@ -90,7 +90,7 @@ function bundle(id, role) {
   const event = { ...ev };
   if (role !== 'admin') { event.notifyEmail = ''; event.replyTo = ''; }
   return {
-    ok: true, role, event,
+    ok: true, role, event, ...(role === 'admin' ? { repToken: REP_TOKEN } : {}),
     bookings: live.map((b) => {
       if (!canSeeNames(role)) return publicBooking(b);
       const { cancelToken, ...rest } = b;
@@ -264,12 +264,39 @@ http.createServer((req, res) => {
     });
   }
   let p = u.pathname === '/' ? '/index.html' : u.pathname;
+
+  // Mirror the rewrites in netlify.toml so the pretty links people are
+  // actually sent (/e/<id>) behave here the way they do in production.
+  const REWRITES = [
+    [/^\/e\/([^/]+)$/, '/event.html', 'e'],
+    [/^\/manage\/([^/]+)$/, '/admin.html', 'e'],
+    [/^\/edit\/([^/]+)$/, '/edit.html', 'e']
+  ];
+  let rewrittenParam = '';
+  for (const [re, target, param] of REWRITES) {
+    const m = p.match(re);
+    if (m) {
+      rewrittenParam = param + '=' + encodeURIComponent(decodeURIComponent(m[1]));
+      // Netlify keeps any query the visitor supplied and adds the captured id.
+      u.searchParams.set(param, decodeURIComponent(m[1]));
+      p = target;
+      break;
+    }
+  }
   const f = path.join(ROOT, p);
   if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) {
     res.writeHead(404); return res.end('not found');
   }
   let data = fs.readFileSync(f);
   if (p === '/config.js') data = Buffer.from("window.SHOWTIME_CONFIG={API_URL:'http://localhost:" + PORT + "/api',REFRESH_MS:60000};");
+  // On a rewrite the browser's URL stays /e/<id>, so the page can't read ?e=
+  // from it. Netlify passes the query through server-side; do the same by
+  // seeding it before any other script runs.
+  if (rewrittenParam) {
+    data = Buffer.from(String(data).replace('<head>',
+      '<head><script>history.replaceState(null,"",location.pathname+"?'
+      + rewrittenParam + '");</script>'));
+  }
   res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' });
   res.end(data);
 }).listen(PORT, () => console.log('mock on http://localhost:' + PORT));

@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jetty — Appointment Booking</title>
 <meta name="description" content="Book an appointment slot at a Jetty trade show or sales meeting.">
-<link rel="icon" href="assets/brand/otis-coin-dark.png">
+<link rel="icon" href="/assets/brand/otis-coin-dark.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800;900&family=Petrona:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/styles.css">
+<link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
 <div id="hdr"></div>
@@ -20,7 +20,7 @@
     <h1>Pick a show.<br>Pick a time.</h1>
     <div class="meta">Live availability, one link. Reps and retailers book the same grid.</div>
     <div class="hero-actions">
-      <a class="btn btn-tan" href="new.html" data-role-admin hidden>+ Create New Event</a>
+      <a class="btn btn-tan" href="/new.html" data-role-admin hidden>+ Create New Event</a>
     </div>
   </div>
 </section>
@@ -38,8 +38,8 @@
 
 <div id="ftr"></div>
 
-<script src="config.js"></script>
-<script src="assets/app.js"></script>
+<script src="/config.js"></script>
+<script src="/assets/app.js"></script>
 <script>
 (function () {
   document.getElementById('hdr').innerHTML = ST.header('events');
@@ -59,7 +59,7 @@
     var total = slotsPerDay * (ev.stations || []).length;
     var past = ev.endDate && ev.endDate < todayStr();
 
-    var a = ST.el('a', { class: 'event-card', href: 'event.html?e=' + encodeURIComponent(ev.eventId) });
+    var a = ST.el('a', { class: 'event-card', href: '/event.html?e=' + encodeURIComponent(ev.eventId) });
     a.innerHTML =
       '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
       + '<h3>' + ST.esc(ev.name) + '</h3>'
@@ -88,7 +88,7 @@
         class: 'card',
         html: '<p style="margin:0 0 14px"><strong>No upcoming events yet.</strong></p>'
           + '<p class="muted small" style="margin:0 0 18px">Create one and share the link — anyone with it can book a slot.</p>'
-          + (ST.isAdmin() ? '<a class="btn" href="new.html">+ Create New Event</a>' : '')
+          + (ST.isAdmin() ? '<a class="btn" href="/new.html">+ Create New Event</a>' : '')
       }));
     } else {
       var grid = ST.el('div', { class: 'event-list' });

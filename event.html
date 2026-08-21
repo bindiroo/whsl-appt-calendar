@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Book an Appointment — Jetty</title>
-<link rel="icon" href="assets/brand/otis-coin-dark.png">
+<link rel="icon" href="/assets/brand/otis-coin-dark.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800;900&family=Petrona:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/styles.css">
+<link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
 <div id="hdr"></div>
@@ -20,6 +20,7 @@
     <div class="meta" id="ev-meta"></div>
     <div class="hero-actions">
       <button class="btn btn-tan" id="btn-copy">Copy Booking Link</button>
+      <span class="copy-note" id="copy-note" hidden>Safe to send &mdash; no password in it</span>
       <a class="btn btn-ghost-light" id="btn-admin" href="#" data-role-admin hidden>Manage Bookings</a>
       <a class="btn btn-ghost-light" id="btn-edit" href="#" data-role-admin hidden>Edit Event</a>
     </div>
@@ -155,8 +156,8 @@
   </div>
 </div>
 
-<script src="config.js"></script>
-<script src="assets/app.js"></script>
+<script src="/config.js"></script>
+<script src="/assets/app.js"></script>
 <script>
 (function () {
   document.getElementById('hdr').innerHTML = ST.header('');
@@ -172,8 +173,8 @@
   var $ = function (id) { return document.getElementById(id); };
   var alertBox = $('alert');
 
-  document.getElementById('btn-admin').href = 'admin.html?e=' + encodeURIComponent(eventId);
-  document.getElementById('btn-edit').href = 'edit.html?e=' + encodeURIComponent(eventId);
+  document.getElementById('btn-admin').href = '/admin.html?e=' + encodeURIComponent(eventId);
+  document.getElementById('btn-edit').href = '/edit.html?e=' + encodeURIComponent(eventId);
 
   /* ---------------- Load ---------------- */
 
@@ -195,6 +196,10 @@
       $('lg-booked').innerHTML = state.canSeeNames
         ? '<i class="lg-taken"></i>Booked'
         : '<i class="lg-anon"></i>Booked \u2014 not available';
+      // Signed-in staff are the ones who send this link out, so name it for
+      // them and say plainly that it carries no password.
+      $('btn-copy').textContent = state.canSeeNames ? 'Copy Retailer Link' : 'Copy Booking Link';
+      $('copy-note').hidden = !state.canSeeNames;
       ST.hideAlert(alertBox);
       renderHero();
       renderDays();
@@ -431,14 +436,9 @@
   /* ---------------- Misc ---------------- */
 
   $('btn-copy').onclick = function () {
-    var btn = this;
-    var url = location.origin + location.pathname + '?e=' + encodeURIComponent(eventId);
-    var done = function () {
-      btn.textContent = 'Link Copied ✓';
-      setTimeout(function () { btn.textContent = 'Copy Booking Link'; }, 2200);
-    };
-    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () { prompt('Copy this link:', url); });
-    else prompt('Copy this link:', url);
+    // Never ST.getToken() here. This is the link a retailer receives, and a
+    // staff password inside it would hand them the staff view.
+    ST.copyButton(this, ST.eventUrl(eventId), 'Link Copied \u2713');
   };
 
   document.addEventListener('keydown', function (e) {
