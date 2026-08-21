@@ -33,3 +33,8 @@
   from = "/manage/:id"
   to = "/admin.html?e=:id"
   status = 200
+
+[[redirects]]
+  from = "/edit/:id"
+  to = "/edit.html?e=:id"
+  status = 200

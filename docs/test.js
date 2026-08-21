@@ -364,7 +364,107 @@ process.on('exit', stopMock);
     try { shared.kill('SIGKILL'); } catch (e) {}
   }
 
-  head('21. No JS errors anywhere');
+  head('20b. Editing an event');
+  const { page: ed } = await ctxFor(ADMIN);
+
+  // Only admins get in.
+  const { page: edPub } = await ctxFor(null);
+  await edPub.goto(B + '/edit.html?e=surf-expo-fall-2026');
+  await edPub.waitForSelector('#gate:not(.hidden)', { timeout: 8000 });
+  ok(await edPub.locator('#main').isHidden(), 'retailer is stopped at the edit gate');
+  const edRep = await api({ action: 'updateEvent', token: REP, eventId: 'surf-expo-fall-2026', name: 'Nope' });
+  ok(edRep.ok === false && /PASSWORD_REQUIRED/.test(edRep.error), 'rep cannot edit an event');
+
+  await ed.goto(B + '/edit.html?e=surf-expo-fall-2026');
+  await ed.waitForSelector('#main:not(.hidden)', { timeout: 8000 });
+  ok((await ed.locator('#f-name').inputValue()).includes('Surf Expo'), 'form is pre-filled');
+  const stCount = await ed.locator('#stations > div').count();
+  ok(stCount === 4, `four stations listed (got ${stCount})`);
+  ok(/booked/i.test(await ed.locator('#stations').innerText()), 'shows which stations hold bookings');
+  await ed.screenshot({ path: shots + '12-edit.png', fullPage: true });
+
+  // Rename the event and the station that actually holds appointments.
+  await ed.fill('#f-name', 'Surf Expo — Fall 2026 (Jetty)');
+  const busy = ed.locator('#stations > div').nth(1).locator('.st-input');
+  await busy.fill('Summer In-House / Business');
+  await ed.click('#submit');
+  await ed.waitForSelector('.alert-ok', { timeout: 8000 });
+  const okTxt = await ed.locator('#alert').innerText();
+  ok(/saved/i.test(okTxt), 'save confirms');
+  ok(/\d+ existing appointments were updated/i.test(okTxt), 'reports the bookings it kept in sync: ' + okTxt.trim());
+
+  // The rename must reach the bookings, not just the event header.
+  const afterEdit = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: ADMIN });
+  ok(afterEdit.event.name === 'Surf Expo — Fall 2026 (Jetty)', 'event name changed');
+  ok(afterEdit.event.stations[1].name === 'Summer In-House / Business', 'station name changed');
+  ok(afterEdit.event.stations[1].id === 'station-2', 'station id was NOT changed');
+  const stale = afterEdit.bookings.filter((b) => b.stationId === 'station-2'
+    && b.stationName !== 'Summer In-House / Business');
+  ok(stale.length === 0, 'no booking is left showing the old station name');
+  ok(afterEdit.bookings.length > 0, 'and the bookings are all still attached');
+
+  // Removing a station that still holds appointments must be refused.
+  const drop = await api({
+    action: 'updateEvent', token: ADMIN, eventId: 'surf-expo-fall-2026',
+    stations: afterEdit.event.stations.filter((s) => s.id !== 'station-2')
+  });
+  ok(drop.ok === false && /still has/.test(drop.error),
+    'refuses to strand appointments: ' + drop.error);
+  const stillThere = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: ADMIN });
+  ok(stillThere.event.stations.length === 4, 'nothing was removed');
+
+  // An empty station name is caught rather than silently blanking a column.
+  const blank = await api({
+    action: 'updateEvent', token: ADMIN, eventId: 'surf-expo-fall-2026',
+    stations: [{ id: 'station-1', name: '' }]
+  });
+  ok(blank.ok === false, 'blank station name refused');
+
+  // Adding a station is safe and gets a fresh id.
+  const grown = await api({
+    action: 'updateEvent', token: ADMIN, eventId: 'surf-expo-fall-2026',
+    stations: stillThere.event.stations.concat([{ name: 'Overflow Table' }])
+  });
+  ok(grown.ok === true, 'a station can be added');
+  const after2 = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: ADMIN });
+  ok(after2.event.stations.length === 5, 'five stations now');
+  const ids = after2.event.stations.map((s) => s.id);
+  ok(new Set(ids).size === ids.length, 'every station id is still unique: ' + ids.join(','));
+
+  // The renamed event must show up correctly for a retailer too.
+  const { page: seeIt } = await ctxFor(null);
+  await seeIt.goto(B + '/event.html?e=surf-expo-fall-2026');
+  await seeIt.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  ok(/Summer In-House/.test(await seeIt.locator('table.grid thead').innerText()),
+    'retailer grid shows the new station name');
+  ok((await seeIt.locator('table.grid thead th').count()) === 6, 'and the added station column');
+
+  head('21. A blocked request explains itself');
+  // Simulate exactly what Cory's ad blocker did: kill the request outright.
+  const { page: blk } = await ctxFor(null);
+  await blk.route('**/api*', (r) => r.abort('blockedbyclient'));
+  await blk.goto(B + '/event.html?e=surf-expo-fall-2026');
+  await blk.waitForSelector('#alert:not([hidden])', { timeout: 8000 });
+  const blkTxt = await blk.locator('#alert').innerText();
+  ok(!/failed to fetch/i.test(blkTxt), 'no raw "Failed to fetch" shown to the visitor');
+  ok(/ad blocker|privacy extension/i.test(blkTxt), 'names the likely cause');
+  ok(/private|incognito/i.test(blkTxt), 'offers a way out');
+  await blk.screenshot({ path: shots + '11-blocked.png', fullPage: true });
+
+  // A real server-side error must still come through verbatim, not be
+  // mislabelled as a blocked connection.
+  const { page: srv } = await ctxFor(null);
+  await srv.route('**/api*', (r) => r.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ok: false, error: 'Event not found: nope' })
+  }));
+  await srv.goto(B + '/event.html?e=nope');
+  await srv.waitForSelector('#alert:not([hidden])', { timeout: 8000 });
+  const srvTxt = await srv.locator('#alert').innerText();
+  ok(/event not found/i.test(srvTxt), 'a real server error still shows its own message');
+  ok(!/ad blocker/i.test(srvTxt), 'server errors are not mislabelled as blocked');
+
+  head('22. No JS errors anywhere');
   ok(errors.length === 0, 'clean console' + (errors.length ? ': ' + errors.join(' | ') : ''));
 
   await browser.close();

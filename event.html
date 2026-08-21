@@ -21,6 +21,7 @@
     <div class="hero-actions">
       <button class="btn btn-tan" id="btn-copy">Copy Booking Link</button>
       <a class="btn btn-ghost-light" id="btn-admin" href="#" data-role-admin hidden>Manage Bookings</a>
+      <a class="btn btn-ghost-light" id="btn-edit" href="#" data-role-admin hidden>Edit Event</a>
     </div>
   </div>
 </section>
@@ -172,6 +173,7 @@
   var alertBox = $('alert');
 
   document.getElementById('btn-admin').href = 'admin.html?e=' + encodeURIComponent(eventId);
+  document.getElementById('btn-edit').href = 'edit.html?e=' + encodeURIComponent(eventId);
 
   /* ---------------- Load ---------------- */
 

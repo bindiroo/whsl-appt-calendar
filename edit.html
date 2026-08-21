@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edit Event — Jetty</title>
+<link rel="icon" href="assets/brand/otis-coin-dark.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800;900&family=Petrona:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div id="hdr"></div>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Edit</div>
+    <h1 id="ev-name">&nbsp;</h1>
+    <div class="meta" id="ev-meta"></div>
+  </div>
+</section>
+
+<div id="gate" class="gate hidden">
+  <img src="assets/brand/otis-coin-dark.png" alt="">
+  <h2>Admin only</h2>
+  <p id="gate-msg">Editing an event is restricted. Enter the admin password to continue.</p>
+  <button class="btn" id="gate-btn">Enter admin password</button>
+  <p style="margin-top:18px"><a href="index.html" class="small">Back to events</a></p>
+</div>
+
+<main class="wrap-narrow section hidden" id="main">
+  <div id="alert" class="alert" hidden></div>
+
+  <form id="ev-form" novalidate>
+    <div class="card">
+      <div class="section-title" style="margin-top:0">The Basics</div>
+      <div class="field">
+        <label for="f-name">Event Name <span class="req">*</span></label>
+        <input type="text" id="f-name" required>
+        <div class="hint">This is the big heading on the booking page.</div>
+      </div>
+      <div class="field">
+        <label for="f-subtitle">Subtitle</label>
+        <input type="text" id="f-subtitle">
+        <div class="hint">The small line above the name.</div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="f-venue">Venue</label>
+          <input type="text" id="f-venue">
+        </div>
+        <div class="field">
+          <label for="f-city">City</label>
+          <input type="text" id="f-city">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="f-notify">Notify Email</label>
+          <input type="email" id="f-notify">
+          <div class="hint">Gets a copy of every booking and cancellation.</div>
+        </div>
+        <div class="field">
+          <label for="f-replyto">Reply-To on Confirmations</label>
+          <input type="email" id="f-replyto">
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="section-title" style="margin-top:0">Stations</div>
+      <p class="hint" style="margin:0 0 14px">
+        Rename freely — appointments follow their station automatically, and any
+        already booked will show the new name everywhere. A station holding
+        appointments can't be removed until those are cancelled.
+      </p>
+      <div id="stations" class="stack"></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="add-station" style="margin-top:12px">+ Add Station</button>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="section-title" style="margin-top:0">Dates &amp; Hours</div>
+      <div id="dayinfo" class="small muted"></div>
+      <p class="hint" style="margin-bottom:0">
+        Dates, hours and appointment length are fixed once an event exists, so a
+        change can't strand an appointment at a time that no longer exists. To
+        move the schedule, create a new event.
+      </p>
+    </div>
+
+    <div style="margin-top:22px;display:flex;gap:10px;flex-wrap:wrap">
+      <button type="submit" class="btn" id="submit">Save Changes</button>
+      <a class="btn btn-ghost" id="back" href="#">Cancel</a>
+    </div>
+  </form>
+</main>
+
+<div id="ftr"></div>
+
+<script src="config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+(function () {
+  document.getElementById('hdr').innerHTML = ST.header('');
+  document.getElementById('ftr').innerHTML = ST.footer();
+  ST.applyRoleToChrome();
+
+  var $ = function (id) { return document.getElementById(id); };
+  var eventId = ST.qs('e');
+  var alertBox = $('alert');
+  var state = { event: null, counts: {} };
+
+  $('back').href = 'admin.html?e=' + encodeURIComponent(eventId);
+
+  /* ---------------- Admin gate ---------------- */
+
+  function showGate(msg) {
+    if (msg) $('gate-msg').textContent = msg;
+    $('gate').classList.remove('hidden');
+    $('main').classList.add('hidden');
+  }
+  function hideGate() {
+    $('gate').classList.add('hidden');
+    $('main').classList.remove('hidden');
+  }
+  $('gate-btn').onclick = function () {
+    var t = window.prompt('Admin password:', '');
+    if (!t) return;
+    ST.setToken(t.trim());
+    checkAdmin().then(function (okAdmin) { if (okAdmin) load(); });
+  };
+  function checkAdmin() {
+    return ST.get({ action: 'ping' }).then(function (d) {
+      if (d.role === 'admin') { hideGate(); return true; }
+      if (d.role === 'public') ST.setToken('');
+      showGate('That password was not recognised. Try again, or ask Cory for the admin password.');
+      return false;
+    }).catch(function (err) { showGate(err.message); return false; });
+  }
+
+  /* ---------------- Stations ---------------- */
+
+  function stationRow(station, count) {
+    var wrap = ST.el('div', {
+      style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap'
+    });
+    wrap.dataset.stationId = station.id || '';
+
+    var num = ST.el('div', {
+      class: 'mono muted nowrap',
+      style: 'width:78px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase'
+    });
+    var input = ST.el('input', {
+      type: 'text', class: 'st-input', placeholder: 'Station name',
+      value: station.name || '', style: 'flex:1;min-width:200px'
+    });
+    var tag = ST.el('span', {
+      class: 'small muted nowrap',
+      style: 'min-width:96px',
+      text: count ? (count + ' booked') : (station.id ? 'no bookings' : 'new')
+    });
+    var del = ST.el('button', {
+      type: 'button', class: 'btn btn-ghost btn-sm nowrap', text: 'Remove',
+      onclick: function () {
+        if (count) {
+          ST.showAlert(alertBox, 'error', '"' + (station.name || 'That station') + '" still has '
+            + count + ' appointment' + (count === 1 ? '' : 's')
+            + '. Cancel ' + (count === 1 ? 'it' : 'them') + ' on the Manage page first.');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+        wrap.remove();
+        renumber();
+      }
+    });
+    if (count) { del.style.opacity = '.45'; }
+
+    wrap.appendChild(num);
+    wrap.appendChild(input);
+    wrap.appendChild(tag);
+    wrap.appendChild(del);
+    return wrap;
+  }
+
+  function renumber() {
+    Array.prototype.forEach.call($('stations').children, function (row, i) {
+      row.firstChild.textContent = 'Station ' + (i + 1);
+    });
+  }
+
+  $('add-station').onclick = function () {
+    $('stations').appendChild(stationRow({ id: '', name: '' }, 0));
+    renumber();
+  };
+
+  function stationValues() {
+    return Array.prototype.map.call($('stations').children, function (row) {
+      return {
+        id: row.dataset.stationId || '',
+        name: row.querySelector('.st-input').value.trim()
+      };
+    }).filter(function (s) { return s.name; });
+  }
+
+  /* ---------------- Load ---------------- */
+
+  function load() {
+    if (!eventId) {
+      ST.showAlert(alertBox, 'error', 'No event specified.');
+      return Promise.resolve();
+    }
+    return ST.get({ action: 'event', id: eventId }).then(function (d) {
+      state.event = d.event;
+      state.counts = {};
+      (d.bookings || []).forEach(function (b) {
+        state.counts[b.stationId] = (state.counts[b.stationId] || 0) + 1;
+      });
+
+      var ev = d.event;
+      document.title = 'Edit — ' + ev.name;
+      $('ev-name').textContent = ev.name;
+      $('ev-meta').innerHTML = '<strong>' + ST.esc(ST.dateRange(ev.startDate, ev.endDate)) + '</strong>';
+
+      $('f-name').value = ev.name || '';
+      $('f-subtitle').value = ev.subtitle || '';
+      $('f-venue').value = ev.venue || '';
+      $('f-city').value = ev.city || '';
+      $('f-notify').value = ev.notifyEmail || '';
+      $('f-replyto').value = ev.replyTo || '';
+
+      var host = $('stations');
+      host.innerHTML = '';
+      ev.stations.forEach(function (s) {
+        host.appendChild(stationRow(s, state.counts[s.id] || 0));
+      });
+      renumber();
+
+      $('dayinfo').innerHTML = ev.days.map(function (d) {
+        return ST.esc(ST.longDate(d.date)) + ' &middot; ' + ST.pretty12(d.start)
+          + '&ndash;' + ST.pretty12(d.end);
+      }).join('<br>') + '<br><strong>' + ev.slotMinutes + '-minute appointments</strong>';
+
+      ST.hideAlert(alertBox);
+    }).catch(function (err) {
+      ST.showAlert(alertBox, 'error', err.message);
+    });
+  }
+
+  /* ---------------- Save ---------------- */
+
+  $('ev-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    ST.hideAlert(alertBox);
+
+    var name = $('f-name').value.trim();
+    if (!name) return ST.showAlert(alertBox, 'error', 'The event needs a name.');
+    var stations = stationValues();
+    if (!stations.length) return ST.showAlert(alertBox, 'error', 'Keep at least one station.');
+
+    var btn = $('submit');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    ST.withPassword(function () {
+      return ST.post({
+        action: 'updateEvent',
+        eventId: eventId,
+        name: name,
+        subtitle: $('f-subtitle').value.trim(),
+        venue: $('f-venue').value.trim(),
+        city: $('f-city').value.trim(),
+        notifyEmail: $('f-notify').value.trim(),
+        replyTo: $('f-replyto').value.trim(),
+        stations: stations
+      });
+    }).then(function (d) {
+      var extra = d.bookingsRenamed
+        ? ' ' + d.bookingsRenamed + ' existing appointment'
+          + (d.bookingsRenamed === 1 ? ' was' : 's were') + ' updated to match.'
+        : '';
+      // Refresh FIRST — load() clears the alert box, so a message shown before
+      // it would be wiped out the moment the reload finished.
+      return load().then(function () {
+        ST.showAlert(alertBox, 'ok', 'Saved.' + extra);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }).catch(function (err) {
+      ST.showAlert(alertBox, 'error', err.message);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }).finally(function () {
+      btn.disabled = false; btn.textContent = 'Save Changes';
+    });
+  });
+
+  checkAdmin().then(function (okAdmin) { if (okAdmin) load(); });
+})();
+</script>
+</body>
+</html>

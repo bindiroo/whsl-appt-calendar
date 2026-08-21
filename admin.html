@@ -20,6 +20,7 @@
     <div class="meta" id="ev-meta"></div>
     <div class="hero-actions">
       <a class="btn btn-tan" id="btn-book" href="#">Back to Booking Grid</a>
+      <a class="btn btn-ghost-light" id="btn-edit" href="#">Edit Event</a>
       <button class="btn btn-ghost-light" id="btn-csv">Export CSV</button>
       <button class="btn btn-ghost-light" id="btn-ics">Export All to Calendar</button>
     </div>
@@ -108,6 +109,7 @@
 
 
   $('btn-book').href = 'event.html?e=' + encodeURIComponent(eventId);
+  $('btn-edit').href = 'edit.html?e=' + encodeURIComponent(eventId);
 
   function load() {
     if (!eventId) {

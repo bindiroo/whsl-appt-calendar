@@ -84,6 +84,19 @@ var BLOCK_COLS = ['block_id', 'event_id', 'date', 'station_id', 'start_time', 'r
  */
 var DEFAULT_PASSWORD = 'jetty5dyol';
 
+/*
+ *  ===== PASTE YOUR NETLIFY ADDRESS HERE =====
+ *  Put your live website address between the quotes below, save, then pick
+ *  saveSiteUrl from the Run menu at the top and click Run.
+ *
+ *  It should look like:  https://whsl-appt-calendar.netlify.app
+ *  No slash on the end.
+ *
+ *  This is what puts a working "Cancel this appointment" link in the
+ *  confirmation emails retailers receive.
+ */
+var SITE_URL = '';
+
 var TEXT_COLS_ = {
   'Events': ['start_date', 'end_date', 'day_start', 'day_end'],
   'Bookings': ['date', 'start_time', 'end_time'],
@@ -171,6 +184,22 @@ function setPasswords(adminPassword, repPassword) {
   if (adminPassword) props.setProperty('ADMIN_TOKEN', String(adminPassword).trim());
   if (repPassword) props.setProperty('REP_TOKEN', String(repPassword).trim());
   return showPasswords();
+}
+
+/**
+ * Saves whatever you typed into SITE_URL above.
+ * Pick this from the Run menu after editing that line.
+ */
+function saveSiteUrl() {
+  var url = String(SITE_URL || '').trim();
+  if (!url) {
+    throw new Error('SITE_URL is still empty. Scroll to the top of this file, '
+      + 'paste your Netlify address between the quotes, save, then run this again.');
+  }
+  if (!/^https?:\/\//.test(url)) {
+    throw new Error('SITE_URL should start with https:// — got "' + url + '"');
+  }
+  return setSiteUrl(url);
 }
 
 /** Tell the script where the website lives, for links inside emails. */
@@ -732,29 +761,116 @@ function updateEvent_(b) {
     var rows = readAll_(SHEET_EVENTS, EVENT_COLS);
     for (var i = 0; i < rows.length; i++) {
       if (String(rows[i].event_id) !== String(b.eventId)) continue;
-      var set = function (col, val) { sh.getRange(rows[i]._row, EVENT_COLS.indexOf(col) + 1).setValue(val); };
-      if (b.name !== undefined) set('name', trim_(b.name));
+      var row = rows[i];
+      var set = function (col, val) { sh.getRange(row._row, EVENT_COLS.indexOf(col) + 1).setValue(val); };
+      var renamed = 0;
+
+      if (b.name !== undefined) {
+        if (!trim_(b.name)) throw new Error('The event needs a name.');
+        set('name', trim_(b.name));
+      }
       if (b.subtitle !== undefined) set('subtitle', trim_(b.subtitle));
       if (b.venue !== undefined) set('venue', trim_(b.venue));
       if (b.city !== undefined) set('city', trim_(b.city));
       if (b.notifyEmail !== undefined) set('notify_email', trim_(b.notifyEmail));
       if (b.replyTo !== undefined) set('reply_to', trim_(b.replyTo));
       if (b.slotMinutes !== undefined) set('slot_minutes', Number(b.slotMinutes) || 60);
-      if (b.stations !== undefined) set('stations_json', JSON.stringify(b.stations));
+
+      if (b.stations !== undefined) {
+        renamed = applyStationEdit_(String(b.eventId), row, b.stations, set);
+      }
+
       if (b.days !== undefined) {
         var days = b.days.slice().sort(function (a, c) { return String(a.date).localeCompare(String(c.date)); });
         set('days_json', JSON.stringify(days));
         set('start_date', days[0].date);
         set('end_date', days[days.length - 1].date);
       }
+
       set('updated_at', new Date().toISOString());
-      return { ok: true, eventId: String(b.eventId) };
+      return { ok: true, eventId: String(b.eventId), bookingsRenamed: renamed };
     }
     throw new Error('Event not found.');
   } finally {
     SpreadsheetApp.flush();
     lock.releaseLock();
   }
+}
+
+/**
+ * Rename / add / remove stations safely.
+ *
+ * A booking is tied to its station by id, never by name, so renaming is free —
+ * but every booking also stores a COPY of the station name for the manage table,
+ * the CSV export and the booking detail. Left alone those copies would keep
+ * showing the old label, so they are rewritten here.
+ *
+ * Dropping a station that still has appointments would orphan them off the
+ * grid entirely, so that is refused rather than silently allowed.
+ */
+function applyStationEdit_(eventId, eventRow, incoming, set) {
+  if (!incoming || !incoming.length) throw new Error('An event needs at least one station.');
+
+  var previous = safeJson_(eventRow.stations_json, []);
+  var prevNameById = {};
+  previous.forEach(function (s) { prevNameById[String(s.id)] = String(s.name || ''); });
+
+  var seen = {};
+  var stations = incoming.map(function (s, i) {
+    // Keep the id the client sent back. A new station arrives without one and
+    // gets a fresh id that cannot collide with a retired station's bookings.
+    var id = s.id ? slug_(s.id) : nextStationId_(previous, seen);
+    if (seen[id]) throw new Error('Two stations ended up with the same id ("' + id + '").');
+    seen[id] = true;
+    var name = trim_(s.name);
+    if (!name) throw new Error('Station ' + (i + 1) + ' needs a name.');
+    return { id: id, name: name, sub: trim_(s.sub) };
+  });
+
+  // Refuse to strand appointments.
+  var bookings = readAll_(SHEET_BOOKINGS, BOOKING_COLS).filter(function (r) {
+    return String(r.event_id) === eventId && String(r.status || 'confirmed') !== 'cancelled';
+  });
+  var counts = {};
+  bookings.forEach(function (r) {
+    var id = String(r.station_id);
+    counts[id] = (counts[id] || 0) + 1;
+  });
+  Object.keys(counts).forEach(function (id) {
+    if (!seen[id]) {
+      throw new Error('"' + (prevNameById[id] || id) + '" still has ' + counts[id]
+        + ' appointment' + (counts[id] === 1 ? '' : 's') + '. Cancel or move '
+        + (counts[id] === 1 ? 'it' : 'them') + ' before removing that station.');
+    }
+  });
+
+  set('stations_json', JSON.stringify(stations));
+
+  // Bring the stored copies on existing bookings back in line.
+  var nameById = {};
+  stations.forEach(function (s) { nameById[s.id] = s.name; });
+  var bsh = sheet_(SHEET_BOOKINGS, BOOKING_COLS);
+  var col = BOOKING_COLS.indexOf('station_name') + 1;
+  var renamed = 0;
+  readAll_(SHEET_BOOKINGS, BOOKING_COLS).forEach(function (r) {
+    if (String(r.event_id) !== eventId) return;
+    var want = nameById[String(r.station_id)];
+    if (want !== undefined && String(r.station_name || '') !== want) {
+      bsh.getRange(r._row, col).setValue(want);
+      renamed++;
+    }
+  });
+  return renamed;
+}
+
+/** A station id that no current or retired station is already using. */
+function nextStationId_(previous, taken) {
+  var n = previous.length + 1;
+  var id = 'station-' + n;
+  var used = {};
+  previous.forEach(function (s) { used[String(s.id)] = true; });
+  while (used[id] || taken[id]) { n++; id = 'station-' + n; }
+  return id;
 }
 
 function setEventStatus_(eventId, status) {

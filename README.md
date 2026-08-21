@@ -51,9 +51,10 @@ Clicking it once stores the password in that browser and immediately scrubs it o
 | `index.html` | anyone | List of events |
 | `event.html?e=<id>` | anyone | The booking grid — **this is the link you share** |
 | `new.html` | admin | Create a new event |
+| `edit.html?e=<id>` | admin | Rename the event, venue, city and stations |
 | `admin.html?e=<id>` | admin | All bookings, CSV export, block off slots |
 
-Netlify also serves short links: `/e/<event-id>` and `/manage/<event-id>`.
+Netlify also serves short links: `/e/<event-id>`, `/manage/<event-id>` and `/edit/<event-id>`.
 
 ---
 
@@ -73,14 +74,25 @@ You should now see three tabs in the sheet (**Events**, **Bookings**, **Blocks**
   STAFF password : jetty5dyol
 ```
 
-`showPasswords()` prints it again any time. To change it:
+### Functions you can run from the Run menu
 
-```js
-setPasswords('newAdminPassword', 'newRepPassword')   // two tiers
-useDefaultPasswords()                                 // back to jetty5dyol for both
-```
+The Run button only works on functions that need no input typed into them:
 
-If you'd already run `setup()` before and it generated something random, `useDefaultPasswords()` resets both.
+| Pick this | What it does |
+|---|---|
+| `setup` | Creates the three sheet tabs and sets both passwords to `jetty5dyol` |
+| `useDefaultPasswords` | Forces both passwords back to `jetty5dyol` |
+| `showPasswords` | Prints the current passwords and the staff magic link |
+| `saveSiteUrl` | Saves whatever you put in the `SITE_URL` line near the top of `Code.gs` |
+| `seedSurfExpo` | Creates the Surf Expo event |
+| `seedSurfExpoBookings` | Imports the appointments from the old planning sheet |
+
+`setPasswords` and `setSiteUrl` take arguments, so they can't be run from that
+menu — use `useDefaultPasswords` and `saveSiteUrl` instead, or call them from
+another function.
+
+Note that **`setup` will not overwrite passwords that already exist.** If it
+once generated random ones, `useDefaultPasswords` is what resets them.
 
 ### 2. Deploy the API
 
@@ -106,13 +118,18 @@ Commit. Netlify redeploys in about 30 seconds.
 
 ### 4. Tell the script where the site lives
 
-Back in Apps Script, run:
+The Apps Script **Run** button can only run functions that take no input, so
+anything needing a value is set by editing one line and then running a helper.
+
+Near the top of `Code.gs`, paste your Netlify address between the quotes:
 
 ```js
-setSiteUrl('https://your-site.netlify.app')
+var SITE_URL = 'https://your-site.netlify.app';
 ```
 
-This is what puts a working **Cancel this appointment** link in confirmation emails, and it makes `showPasswords()` print a ready-to-share rep magic link.
+Save, then pick **`saveSiteUrl`** from the Run menu and click Run.
+
+This is what puts a working **Cancel this appointment** link in confirmation emails, and it makes `showPasswords()` print a ready-to-share staff magic link.
 
 ### 5. Create the Surf Expo event
 
@@ -151,6 +168,16 @@ Everything lives in the sheet, so you can filter, pivot, or export it however yo
 - **Blocks** — slots that are off-limits (lunch, walkthroughs, hard stops)
 
 `cancel_token` is the secret behind each retailer's self-cancel link. It is never included in any list the API returns — only in that one confirmation email.
+
+## Changing an event after it exists
+
+**Manage → Edit Event** (admin only). You can change the name, subtitle, venue, city, notify address and the station names, and you can add stations.
+
+Renaming a station is safe. Appointments are tied to their station by a hidden id, never by name, so nothing moves — and because each booking also stores its own copy of the station name for the manage table and the CSV export, those copies get rewritten too. The save tells you how many it updated.
+
+Removing a station that still holds appointments is refused, with a count of what's in the way. Cancel or move those first.
+
+Dates, per-day hours and appointment length are deliberately fixed once an event exists: shortening a day or changing the slot length could leave an appointment at a time the grid no longer has a row for. Create a new event to move a schedule.
 
 ## Reusing this for the next show
 

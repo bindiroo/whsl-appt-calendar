@@ -153,6 +153,54 @@ function handle(action, body) {
       stationId: body.stationId, startTime: body.startTime, reason: body.reason || 'Blocked' });
     return { ok: true, blocked: true };
   }
+  if (action === 'updateEvent') {
+    requireRole(role, ['admin'], 'edit an event');
+    const ev = db.events.find((e) => e.eventId === body.eventId);
+    if (!ev) throw new Error('Event not found.');
+    if (body.name !== undefined) {
+      if (!String(body.name).trim()) throw new Error('The event needs a name.');
+      ev.name = String(body.name).trim();
+    }
+    ['subtitle', 'venue', 'city', 'notifyEmail', 'replyTo'].forEach((k) => {
+      if (body[k] !== undefined) ev[k] = String(body[k]).trim();
+    });
+    let renamed = 0;
+    if (body.stations !== undefined) {
+      if (!body.stations.length) throw new Error('An event needs at least one station.');
+      const prevName = {};
+      ev.stations.forEach((s) => { prevName[s.id] = s.name; });
+      const seen = {};
+      let n = ev.stations.length;
+      const stations = body.stations.map((s, i) => {
+        let id = s.id || null;
+        if (!id) { do { n++; id = 'station-' + n; } while (seen[id] || prevName[id]); }
+        if (seen[id]) throw new Error('Two stations ended up with the same id ("' + id + '").');
+        seen[id] = true;
+        const name = String(s.name || '').trim();
+        if (!name) throw new Error('Station ' + (i + 1) + ' needs a name.');
+        return { id, name, sub: String(s.sub || '') };
+      });
+      const counts = {};
+      db.bookings.filter((b) => b.eventId === body.eventId && b.status !== 'cancelled')
+        .forEach((b) => { counts[b.stationId] = (counts[b.stationId] || 0) + 1; });
+      Object.keys(counts).forEach((id) => {
+        if (!seen[id]) {
+          throw new Error('"' + (prevName[id] || id) + '" still has ' + counts[id]
+            + ' appointment' + (counts[id] === 1 ? '' : 's') + '. Cancel or move '
+            + (counts[id] === 1 ? 'it' : 'them') + ' before removing that station.');
+        }
+      });
+      ev.stations = stations;
+      const nameById = {};
+      stations.forEach((s) => { nameById[s.id] = s.name; });
+      db.bookings.forEach((b) => {
+        if (b.eventId !== body.eventId) return;
+        const want = nameById[b.stationId];
+        if (want !== undefined && b.stationName !== want) { b.stationName = want; renamed++; }
+      });
+    }
+    return { ok: true, role, eventId: body.eventId, bookingsRenamed: renamed };
+  }
   if (action === 'createEvent') {
     requireRole(role, ['admin'], 'create an event');
     if (!body.name) throw new Error('Event name is required.');

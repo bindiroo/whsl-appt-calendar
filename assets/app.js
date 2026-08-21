@@ -78,7 +78,7 @@
       return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
     }).join('&');
     return fetch(API + '?' + qs + '&_=' + Date.now(), { method: 'GET', redirect: 'follow' })
-      .then(readJson);
+      .then(readJson, explainNetworkFailure);
   }
 
   function post(body) {
@@ -92,11 +92,27 @@
       redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
-    }).then(readJson);
+    }).then(readJson, explainNetworkFailure);
   }
 
   var CONFIG_MSG = 'This site is not connected to its Google Sheet yet. '
     + 'Open config.js in the repo and paste in your Apps Script Web App URL.';
+
+  var BLOCKED_MSG = 'Your browser blocked the connection to our scheduling service. '
+    + 'This is almost always an ad blocker or privacy extension — pause it for this '
+    + 'page and reload, or open this link in a private/incognito window. '
+    + 'On a locked-down office network, it may be blocked there instead.';
+
+  /* fetch() rejects with a TypeError when the request never completed at all —
+     blocked by an extension, offline, or refused by the network. That is a very
+     different situation from the server answering with an error, and "Failed to
+     fetch" tells a retailer nothing useful, so name the likely cause instead. */
+  function explainNetworkFailure(err) {
+    var msg = String(err && err.message || '');
+    var isNetwork = (typeof TypeError !== 'undefined' && err instanceof TypeError)
+      || /failed to fetch|networkerror|load failed|network request failed/i.test(msg);
+    throw isNetwork ? new Error(BLOCKED_MSG) : err;
+  }
 
   function readJson(res) {
     return res.text().then(function (txt) {
