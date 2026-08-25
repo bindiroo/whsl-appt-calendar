@@ -152,12 +152,30 @@ Every write goes through `LockService.getScriptLock()`. Inside the lock the scri
 
 ## Emails
 
-Sent by `MailApp` from the Google account that owns the script. Every booking sends:
+Sent by `MailApp` from the Google account that owns the script. Every booking sends **one** email with everyone on it:
 
-- the retailer an HTML + plain-text confirmation, an `.ics` calendar invite, and a private **Cancel this appointment** link
-- you a copy, if the event has a **Notify Email** set (without the retailer's private cancel link)
+- **To:** the retailer
+- **Cc:** everyone in the event's **Notify Emails** field (comma separated) *plus* the sales agency picked in Booked By
 
-Cancellations email both parties. Google Workspace accounts can send ~1,500 emails/day; free Gmail accounts ~100/day.
+One thread means reply-all reaches the retailer, the agency and the Jetty side together — no forwarding to loop someone in. It carries the `.ics` calendar invite and the **Cancel this appointment** link.
+
+Because that link now reaches everyone on the email, the wording says so plainly rather than claiming it's private. Everyone copied could cancel through the Manage page anyway, so it grants nothing new.
+
+The Cc list is de-duplicated case-insensitively, and whoever is in To is never also in Cc — so booking with your own address doesn't get you two copies.
+
+Cancellations go to the same people in the same shape. If a booking has no retailer address — the appointments imported from the old planning sheet don't — the cancellation is addressed to the internal list instead, so it still reaches someone.
+
+## Sales agencies
+
+The **Reps** tab is one company-wide list shared by every event — plain `name` and `email` columns, no JSON. Run `seedReps` once to fill it, then edit the tab directly.
+
+- An agency with more than one contact can hold several addresses separated by commas; all of them get copied.
+- Put `no` in the `active` column to retire an agency without losing the history on past appointments.
+- The booking form turns this into the **Booked By** picker. The browser remembers the last agency chosen, so a rep booking all day picks once.
+- The client only ever sends the agency's **id**; the address is looked up on the server, so a booking can't be used to mail an arbitrary recipient.
+- Retailers get the agency *names* for the picker but never the addresses.
+
+If the Reps tab is empty, Booked By falls back to a plain text box so booking still works. Google Workspace accounts can send ~1,500 emails/day; free Gmail accounts ~100/day.
 
 ## Data
 

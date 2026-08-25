@@ -518,6 +518,50 @@ process.on('exit', stopMock);
   const pubBundle = await apiGet({ action: 'event', id: 'surf-expo-fall-2026' });
   ok(!pubBundle.repToken, 'nor to a retailer');
 
+  head('20c2. Booking picks a sales agency, and the agency gets copied');
+  const { page: bk2 } = await ctxFor(null);
+  await bk2.goto(B + '/event.html?e=surf-expo-fall-2026');
+  await bk2.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  await bk2.locator('.daytab').nth(2).click();
+  await bk2.waitForTimeout(300);
+  await bk2.locator('td.slot-open .slot-btn').first().click();
+  await bk2.waitForSelector('#book-modal:not([hidden])');
+
+  ok(await bk2.locator('#f-by').isVisible(), 'Booked By is a picker, not a text box');
+  ok(await bk2.locator('#f-by-text').isHidden(), 'the free-text fallback is hidden');
+  const opts = await bk2.locator('#f-by option').allInnerTexts();
+  ok(/AgenC/.test(opts.join('|')), 'agencies are listed: ' + opts.join(' / '));
+  ok(/select a sales agency/i.test(opts[0]), 'defaults to no agency chosen');
+
+  await bk2.fill('#f-retailer', 'Agency Booked Surf');
+  await bk2.fill('#f-name', 'Buyer B');
+  await bk2.fill('#f-email', 'buyerb@example.com');
+  await bk2.selectOption('#f-by', 'agenc');
+  await bk2.click('#book-submit');
+  await bk2.waitForSelector('#done-modal:not([hidden])', { timeout: 8000 });
+
+  const withRep = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: ADMIN });
+  const mine2 = withRep.bookings.find((b) => b.retailer === 'Agency Booked Surf');
+  ok(!!mine2, 'the booking saved');
+  ok(mine2.bookedBy === 'AgenC', 'the agency NAME was resolved server-side, not typed');
+  ok(/agenc@icloud\.com/.test(mine2.bookedByEmail), 'and its address was attached: ' + mine2.bookedByEmail);
+  ok(/Ludovic@agenccanada\.com/.test(mine2.bookedByEmail), 'including its second contact');
+
+  // A retailer must never see an agency's address.
+  const pubAfter = await apiGet({ action: 'event', id: 'surf-expo-fall-2026' });
+  ok(!/agenc@icloud|Ludovic@/.test(JSON.stringify(pubAfter)), 'no agency address in the retailer feed');
+  const pubReps = pubAfter.reps || [];
+  ok(pubReps.length > 0, 'retailers still get the agency names for the picker');
+  ok(pubReps.every((r) => !r.email), 'but never their addresses');
+
+  // The picker remembers the agency for the next booking of the day.
+  await bk2.click('#done-close');
+  await bk2.waitForTimeout(600);
+  await bk2.locator('td.slot-open .slot-btn').first().click();
+  await bk2.waitForSelector('#book-modal:not([hidden])');
+  ok((await bk2.locator('#f-by').inputValue()) === 'agenc', 'picker remembers the agency');
+  await bk2.screenshot({ path: shots + '14-agency-picker.png' });
+
   head('20d. Pretty links load their assets');
   // /e/<id> is served by a rewrite, so the browser URL stays one level deep.
   // Any relative asset path would resolve to /e/assets/... and 404, leaving an

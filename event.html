@@ -82,7 +82,13 @@
         </div>
         <div class="field">
           <label for="f-by">Booked By</label>
-          <input type="text" id="f-by" name="bookedBy" placeholder="Sales rep name — or leave blank if self-booking">
+          <select id="f-by" name="repId">
+            <option value="">— Select a sales agency —</option>
+          </select>
+          <input type="text" id="f-by-text" name="bookedBy" hidden
+                 placeholder="Sales agency — or leave blank if self-booking">
+          <div class="hint" id="f-by-hint">The agency gets a copy of the confirmation. Leave on
+            &ldquo;Select&rdquo; if the retailer is booking for themselves.</div>
         </div>
         <div class="field">
           <label for="f-notes">Notes</label>
@@ -165,7 +171,8 @@
   ST.applyRoleToChrome();
 
   var eventId = ST.qs('e');
-  var state = { event: null, bookings: [], blocks: [], activeDay: 0, byKey: {}, blockByKey: {} };
+  var state = { event: null, bookings: [], blocks: [], reps: [], activeDay: 0, byKey: {}, blockByKey: {} };
+  var REP_MEMORY = 'showtime_last_rep';
   var pendingSlot = null;
   var lastBooking = null;
   var timer = null;
@@ -191,6 +198,8 @@
       state.byKey = ST.indexBookings(state.bookings);
       state.blockByKey = ST.indexBlocks(state.blocks);
       // Reps and admins see who's booked and may cancel. Retailers see neither.
+      state.reps = d.reps || [];
+      renderReps();
       state.canSeeNames = ST.canSeeNames();
       $('det-cancel-booking').classList.toggle('hidden', !state.canSeeNames);
       $('lg-booked').innerHTML = state.canSeeNames
@@ -305,6 +314,31 @@
     $('legend').hidden = false;
   }
 
+  /* The agency list comes from the Reps tab. Until someone fills that in the
+     field stays a plain text box, so booking still works on a fresh install. */
+  function renderReps() {
+    var sel = $('f-by');
+    var txt = $('f-by-text');
+    if (!state.reps.length) {
+      sel.hidden = true; sel.disabled = true;
+      txt.hidden = false; txt.disabled = false;
+      $('f-by-hint').textContent = 'Sales agency, if one is booking on the retailer\u2019s behalf.';
+      return;
+    }
+    sel.hidden = false; sel.disabled = false;
+    txt.hidden = true; txt.disabled = true;
+    sel.innerHTML = '';
+    sel.appendChild(ST.el('option', { value: '', text: '\u2014 Select a sales agency \u2014' }));
+    state.reps.forEach(function (r) {
+      sel.appendChild(ST.el('option', { value: r.id, text: r.name }));
+    });
+    // A rep booking all day shouldn't re-pick themselves every time.
+    try {
+      var last = localStorage.getItem(REP_MEMORY);
+      if (last && state.reps.some(function (r) { return r.id === last; })) sel.value = last;
+    } catch (e) {}
+  }
+
   /* ---------------- Booking modal ---------------- */
 
   function openBooking(day, station, time) {
@@ -336,9 +370,13 @@
       contactName: f.contactName.value.trim(),
       contactEmail: f.contactEmail.value.trim(),
       phone: f.phone.value.trim(),
-      bookedBy: f.bookedBy.value.trim(),
+      repId: $('f-by').disabled ? '' : $('f-by').value,
+      bookedBy: $('f-by-text').disabled ? '' : $('f-by-text').value.trim(),
       notes: f.notes.value.trim()
     };
+    try {
+      if (payload.repId) localStorage.setItem(REP_MEMORY, payload.repId);
+    } catch (e) {}
     if (!payload.retailer || !payload.contactName || !payload.contactEmail) {
       ST.showAlert($('bm-alert'), 'error', 'Retailer, contact name and email are all required.');
       return;
@@ -351,6 +389,7 @@
       lastBooking = d.booking;
       closeBooking();
       f.reset();
+      renderReps();          // reset() clears the picker; put the memory back
       showDone(d.booking);
       return load(true);
     }).catch(function (err) {

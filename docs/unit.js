@@ -46,5 +46,56 @@ t(prettyDate_('2026-09-16'), 'Wednesday, Sep 16', 'Surf Expo day 1 is a Wednesda
 t(asDateStr_(new Date(2026, 8, 16)), '2026-09-16', 'Date -> yyyy-mm-dd');
 t(slug_('Surf Expo — Fall 2026'), 'surf-expo-fall-2026', 'event id slug');
 
+/* ---- who gets the email -------------------------------------------------
+   One message: retailer in To, everyone else in Cc. Rebuilt here exactly as
+   sendBookingEmails_ / sendCancelEmails_ decide it. */
+for (const f of ['emailList_', 'internalRecipients_']) {
+  const m = src.match(new RegExp('function ' + f + '\\([\\s\\S]*?\\n}', 'm'));
+  if (!m) throw new Error('helper not found in Code.gs: ' + f);
+  eval(m[0]);
+}
+const confirmation = (ev, bk) => {
+  const msg = { to: bk.contactEmail };
+  const internal = internalRecipients_(ev, bk);
+  if (internal.length) msg.cc = internal.join(',');
+  return msg;
+};
+const cancellation = (ev, bk) => {
+  const internal = internalRecipients_(ev, bk);
+  const msg = {};
+  if (bk.contactEmail) { msg.to = bk.contactEmail; if (internal.length) msg.cc = internal.join(','); }
+  else if (internal.length) { msg.to = internal.join(','); }
+  else return null;
+  return msg;
+};
+const same = (got, want, label) => t(JSON.stringify(got), JSON.stringify(want), label);
+
+const EV = { notifyEmail: 'cory@jettylife.com, paul.harvey@jettylife.com' };
+
+console.log('\nnotify field accepts a list');
+t(emailList_('a@b.com, c@d.com').join('|'), 'a@b.com|c@d.com', 'comma separated');
+t(emailList_('a@b.com;c@d.com').join('|'), 'a@b.com|c@d.com', 'semicolon separated');
+t(emailList_('nope, c@d.com').join('|'), 'c@d.com', 'drops a malformed address');
+
+console.log('\nconfirmation addressing');
+same(confirmation(EV, { contactEmail: 'buyer@ronjon.com',
+      bookedByEmail: 'agenc@icloud.com, Ludovic@agenccanada.com' }),
+  { to: 'buyer@ronjon.com',
+    cc: 'cory@jettylife.com,paul.harvey@jettylife.com,agenc@icloud.com,Ludovic@agenccanada.com' },
+  'retailer addressed, staff + both agency contacts copied');
+same(confirmation(EV, { contactEmail: 'buyer@shop.com', bookedByEmail: '' }),
+  { to: 'buyer@shop.com', cc: 'cory@jettylife.com,paul.harvey@jettylife.com' },
+  'retailer self-booked, no agency chosen');
+same(confirmation(EV, { contactEmail: 'CORY@jettylife.com', bookedByEmail: '' }),
+  { to: 'CORY@jettylife.com', cc: 'paul.harvey@jettylife.com' },
+  'nobody is copied on their own booking');
+
+console.log('\ncancellation addressing');
+same(cancellation(EV, { contactEmail: '', bookedByEmail: '' }),
+  { to: 'cory@jettylife.com,paul.harvey@jettylife.com' },
+  'an imported booking with no retailer address still reaches staff');
+same(cancellation({ notifyEmail: '' }, { contactEmail: '', bookedByEmail: '' }),
+  null, 'nobody to tell means no send');
+
 console.log('\n' + (fails ? '✗ ' + fails + ' FAILURE(S)' : '✓ ALL UNIT CHECKS PASSED') + '\n');
 process.exit(fails ? 1 : 0);

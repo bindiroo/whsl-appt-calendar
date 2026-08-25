@@ -57,6 +57,7 @@
 var SHEET_EVENTS = 'Events';
 var SHEET_BOOKINGS = 'Bookings';
 var SHEET_BLOCKS = 'Blocks';
+var SHEET_REPS = 'Reps';
 
 var EVENT_COLS = [
   'event_id', 'name', 'subtitle', 'venue', 'city', 'start_date', 'end_date',
@@ -67,10 +68,16 @@ var EVENT_COLS = [
 var BOOKING_COLS = [
   'booking_id', 'event_id', 'date', 'station_id', 'station_name',
   'start_time', 'end_time', 'retailer', 'contact_name', 'contact_email',
-  'phone', 'booked_by', 'notes', 'status', 'cancel_token', 'created_at', 'updated_at'
+  'phone', 'booked_by', 'booked_by_email', 'notes', 'status', 'cancel_token',
+  'created_at', 'updated_at'
 ];
 
 var BLOCK_COLS = ['block_id', 'event_id', 'date', 'station_id', 'start_time', 'reason', 'created_at'];
+
+/* One company-wide list, shared by every event. Edit it straight in the Reps
+   tab — plain name and email columns, no JSON. Put anything other than "yes"
+   in `active` to retire someone without losing the history on past bookings. */
+var REP_COLS = ['rep_id', 'name', 'email', 'active'];
 
 /*
  *  The password both staff roles start with. Change it here before running
@@ -112,6 +119,7 @@ function setup() {
   ensureSheet_(ss, SHEET_EVENTS, EVENT_COLS);
   ensureSheet_(ss, SHEET_BOOKINGS, BOOKING_COLS);
   ensureSheet_(ss, SHEET_BLOCKS, BLOCK_COLS);
+  ensureSheet_(ss, SHEET_REPS, REP_COLS);
 
   var props = PropertiesService.getScriptProperties();
   if (!String(props.getProperty('ADMIN_TOKEN') || '').trim()) {
@@ -484,6 +492,51 @@ function lookupByToken_(cancelToken) {
     }
   }
   throw new Error('That cancellation link is not valid — it may already have been used.');
+}
+
+/**
+ * The sales team, newest-blank-rows ignored. `withEmail` is false for anyone
+ * who is not staff: a retailer picking their rep from the dropdown needs the
+ * names, but the addresses stay on the server.
+ */
+function listReps_(withEmail) {
+  return readAll_(SHEET_REPS, REP_COLS)
+    .filter(function (r) {
+      var active = String(r.active === undefined || r.active === '' ? 'yes' : r.active)
+        .trim().toLowerCase();
+      return trim_(r.name) && active !== 'no' && active !== 'false' && active !== 'n';
+    })
+    .map(function (r) {
+      var out = { id: String(r.rep_id || slug_(r.name)), name: trim_(r.name) };
+      if (withEmail) out.email = trim_(r.email);
+      return out;
+    });
+}
+
+/** The address for a rep id, or '' when unknown. Never trusts the client. */
+function repEmail_(repId) {
+  if (!repId) return '';
+  var reps = listReps_(true);
+  for (var i = 0; i < reps.length; i++) {
+    if (String(reps[i].id) === String(repId)) return reps[i].email || '';
+  }
+  return '';
+}
+
+function repName_(repId) {
+  if (!repId) return '';
+  var reps = listReps_(false);
+  for (var i = 0; i < reps.length; i++) {
+    if (String(reps[i].id) === String(repId)) return reps[i].name;
+  }
+  return '';
+}
+
+/** Split a comma / semicolon separated address field into a clean list. */
+function emailList_(raw) {
+  return String(raw || '').split(/[,;]+/)
+    .map(function (e) { return e.trim(); })
+    .filter(function (e) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); });
 }
 
 function findEvent_(eventId) {
@@ -905,7 +958,10 @@ function cancelLink_(booking) {
 function sendBookingEmails_(event, booking) {
   var when = prettyDate_(booking.date) + ' at ' + pretty12_(booking.startTime) + '–' + pretty12_(booking.endTime);
   var where = [event.venue, event.city].filter(Boolean).join(' · ');
-  var subject = 'Confirmed: ' + booking.retailer + ' — ' + prettyDate_(booking.date) + ' ' + pretty12_(booking.startTime);
+  // One subject for everyone now, so it has to read well for the retailer AND
+  // be scannable in a rep's inbox — hence the station.
+  var subject = 'Confirmed: ' + booking.retailer + ' — ' + booking.stationName
+    + ' — ' + prettyDate_(booking.date) + ' ' + pretty12_(booking.startTime);
   var link = cancelLink_(booking);
 
   var html = ''
@@ -930,8 +986,8 @@ function sendBookingEmails_(event, booking) {
         + 'background:#0F0F0F;color:#F7F6F2;text-decoration:none;padding:11px 20px;border-radius:4px;'
         + 'font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase">'
         + 'Cancel this appointment</a></p>'
-        + '<p style="font-size:12px;color:#8A8A8A;margin-top:8px">This link only affects your own appointment. '
-        + 'Keep it private.</p>'
+        + '<p style="font-size:12px;color:#8A8A8A;margin-top:8px">Cancels this appointment only. '
+        + 'Anyone on this email can use it.</p>'
       : '<p style="font-size:13px;color:#5A5A5A;margin-top:22px">Need to change or cancel? Reply to this email.</p>')
     + '<p style="font-size:12px;color:#8A8A8A;margin-top:22px;letter-spacing:.08em;text-transform:uppercase">Draw Your Own Line&reg;</p>'
     + '</div></div>';
@@ -955,19 +1011,36 @@ function sendBookingEmails_(event, booking) {
   };
   if (event.replyTo) base.replyTo = event.replyTo;
 
-  MailApp.sendEmail(Object.assign({ to: booking.contactEmail, subject: subject }, base));
+  // ONE message with everyone on it, so the retailer, the booking agency and
+  // the Jetty side are all on the same thread and reply-all reaches everyone.
+  // The retailer is the addressee; the rest are copied.
+  var msg = Object.assign({ to: booking.contactEmail, subject: subject }, base);
+  var internal = internalRecipients_(event, booking);
+  if (internal.length) msg.cc = internal.join(',');
+  MailApp.sendEmail(msg);
+}
 
-  if (event.notifyEmail) {
-    // Your copy doesn't need the retailer's private cancel link.
-    var mine = Object.assign({}, base);
-    mine.htmlBody = html.replace(/<p style="margin-top:24px">[\s\S]*?<\/p>\s*<p style="font-size:12px;color:#8A8A8A;margin-top:8px">[\s\S]*?<\/p>/, '');
-    mine.body = plain.split('\n\nCancel this appointment:')[0];
-    MailApp.sendEmail(Object.assign({
-      to: event.notifyEmail,
-      subject: 'New booking: ' + booking.retailer + ' — ' + booking.stationName
-        + ' — ' + prettyDate_(booking.date) + ' ' + pretty12_(booking.startTime)
-    }, mine));
-  }
+/**
+ * Everyone copied on a booking besides the retailer: the event's notify
+ * addresses (comma separated, so several people can be on it) plus the agency
+ * that booked it. De-duplicated case-insensitively, and never the retailer —
+ * they are the To, so repeating them in Cc would just double their copy.
+ */
+function internalRecipients_(event, booking) {
+  var out = [];
+  var seen = {};
+  var add = function (addr) {
+    var a = String(addr || '').trim();
+    if (!a) return;
+    var key = a.toLowerCase();
+    if (seen[key]) return;
+    if (key === String(booking.contactEmail || '').trim().toLowerCase()) return;
+    seen[key] = true;
+    out.push(a);
+  };
+  emailList_(event.notifyEmail).forEach(add);
+  emailList_(booking.bookedByEmail).forEach(add);
+  return out;
 }
 
 function sendCancelEmails_(event, booking) {
@@ -979,17 +1052,33 @@ function sendCancelEmails_(event, booking) {
     + row_('When', prettyDate_(booking.date) + ' at ' + pretty12_(booking.startTime))
     + row_('Station', booking.stationName)
     + row_('Retailer', booking.retailer)
+    + (booking.bookedBy ? row_('Booked by', booking.bookedBy) : '')
     + row_('Confirmation', booking.bookingId)
     + '</table></div>';
   var plain = 'APPOINTMENT CANCELLED\n\nThis slot is open again.\n\n'
     + event.name + '\n' + prettyDate_(booking.date) + ' at ' + pretty12_(booking.startTime) + '\n'
     + booking.stationName + '\nRetailer: ' + booking.retailer
+    + (booking.bookedBy ? '\nBooked by: ' + booking.bookedBy : '')
     + '\nConfirmation: ' + booking.bookingId;
-  var to = [booking.contactEmail, event.notifyEmail].filter(Boolean).join(',');
-  if (to) MailApp.sendEmail({
-    to: to, subject: subject, body: plain, htmlBody: html,
+
+  // Same shape as the confirmation: retailer addressed, everyone else copied.
+  // Appointments imported from the old planning sheet have no retailer address,
+  // so fall back to addressing the internal list — otherwise cancelling one of
+  // those would quietly notify nobody at all.
+  var internal = internalRecipients_(event, booking);
+  var msg = {
+    subject: subject, body: plain, htmlBody: html,
     name: event.name + ' Appointments'
-  });
+  };
+  if (booking.contactEmail) {
+    msg.to = booking.contactEmail;
+    if (internal.length) msg.cc = internal.join(',');
+  } else if (internal.length) {
+    msg.to = internal.join(',');
+  } else {
+    return;  // nobody to tell
+  }
+  MailApp.sendEmail(msg);
 }
 
 function row_(k, v) {

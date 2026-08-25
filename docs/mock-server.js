@@ -83,6 +83,13 @@ db.events.push({
   notifyEmail: 'cory@jettylife.com', replyTo: 'cory@jettylife.com', status: 'archived'
 });
 
+db.reps = [
+  { id: 'in-house', name: 'In-House', email: 'dhenry@jettylife.com' },
+  { id: 'agenc', name: 'AgenC', email: 'agenc@icloud.com, Ludovic@agenccanada.com' },
+  { id: 'bouchard-group', name: 'Bouchard Group', email: 'bouchardgroup@gmail.com' }
+];
+const repById = (id) => db.reps.find((r) => r.id === id) || null;
+
 function bundle(id, role) {
   const ev = db.events.find((e) => e.eventId === id);
   if (!ev) throw new Error('Event not found: ' + id);
@@ -91,6 +98,7 @@ function bundle(id, role) {
   if (role !== 'admin') { event.notifyEmail = ''; event.replyTo = ''; }
   return {
     ok: true, role, event, ...(role === 'admin' ? { repToken: REP_TOKEN } : {}),
+    reps: db.reps.map((r) => (canSeeNames(role) ? r : { id: r.id, name: r.name })),
     bookings: live.map((b) => {
       if (!canSeeNames(role)) return publicBooking(b);
       const { cancelToken, ...rest } = b;
@@ -124,7 +132,10 @@ function handle(action, body) {
       stationName: station.name, startTime: body.startTime,
       endTime: fromMin(toMin(body.startTime) + ev.slotMinutes),
       retailer: body.retailer, contactName: body.contactName, contactEmail: body.contactEmail,
-      phone: body.phone || '', bookedBy: body.bookedBy || '', notes: body.notes || '',
+      phone: body.phone || '',
+      bookedBy: (repById(body.repId) || {}).name || body.bookedBy || '',
+      bookedByEmail: (repById(body.repId) || {}).email || '',
+      notes: body.notes || '',
       status: 'confirmed', createdAt: new Date().toISOString(),
       cancelToken: 'tok' + uid('')
     };

@@ -22,7 +22,7 @@ function seedSurfExpo() {
     subtitle: 'Jetty Showroom Appointments',
     venue: 'Orange County Convention Center',
     city: 'Orlando, FL',
-    notifyEmail: 'cory@jettylife.com',
+    notifyEmail: 'cory@jettylife.com, paul.harvey@jettylife.com',
     replyTo: 'cory@jettylife.com',
     slotMinutes: 60,
     dayStart: '09:00',
@@ -105,5 +105,64 @@ function seedSurfExpoBookings() {
     added++;
   });
   Logger.log('Imported ' + added + ' appointment(s).');
+  return added;
+}
+
+/**
+ * ============================================================
+ *  SEED — the sales agency list
+ * ============================================================
+ *  Run `seedReps` once to fill the Reps tab. After that, edit
+ *  the tab directly in the spreadsheet — it is just Name and
+ *  Email columns. An agency with more than one contact can hold
+ *  several addresses separated by commas; all of them are
+ *  copied on a booking.
+ *
+ *  To retire an agency without losing the history on past
+ *  appointments, put "no" in its `active` column rather than
+ *  deleting the row.
+ *
+ *  Running this again tops up anyone missing and leaves the
+ *  addresses you have edited alone.
+ * ============================================================
+ */
+function seedReps() {
+  var rows = [
+    // Agency,                Email(s)
+    ['In-House', 'dhenry@jettylife.com'],
+    ['T&L', 'Sales@TLActionAgency.com'],
+    ['Ramses', 'phsalesagency@gmail.com'],
+    ['AgenC', 'agenc@icloud.com, Ludovic@agenccanada.com'],
+    ['Briones Group', 'thebrionesgroup@gmail.com'],
+    ['Nathan Zelena', 'nathanzelena@gmail.com, ashleyy.medrano6@gmail.com'],
+    ['Dennis Regan', 'sales@platformdist.com'],
+    ['Sandbox Metro', 'charlie@sandboxmetro.com, paulie@sandboxmetro.com'],
+    ['PNW Sales', 'brian@pnwsalesreps.com, diane@pnwsalesreps.com'],
+    ['LLM Sales LLC', 'lauramccown1@gmail.com'],
+    ['Austin Olivares', 'ao1salesrep@gmail.com'],
+    ['Schulte Sales Inc', 'jimmyschulte@me.com'],
+    ['AEZ Sales LLC', 'Abbey@thezitoagency.com'],
+    ['Compton al Sur LLC', 'comptonjimrep@outlook.com'],
+    ['Bouchard Group', 'bouchardgroup@gmail.com'],
+    ['Team Beach Sales', 'elliot@teambeachsales.com, hillary@teambeachsales.com']
+  ];
+
+  var sh = sheet_(SHEET_REPS, REP_COLS);
+  var existing = readAll_(SHEET_REPS, REP_COLS);
+  var have = {};
+  existing.forEach(function (r) { have[slug_(r.name)] = true; });
+
+  var added = 0;
+  rows.forEach(function (r) {
+    var id = slug_(r[0]);
+    if (have[id]) return;
+    appendRow_(SHEET_REPS, REP_COLS, {
+      rep_id: id, name: r[0], email: r[1], active: 'yes'
+    });
+    added++;
+  });
+  SpreadsheetApp.flush();
+  Logger.log('Added ' + added + ' agenc' + (added === 1 ? 'y' : 'ies') + '. '
+    + listReps_(true).length + ' active in total.');
   return added;
 }
