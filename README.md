@@ -187,6 +187,18 @@ Everything lives in the sheet, so you can filter, pivot, or export it however yo
 
 `cancel_token` is the secret behind each retailer's self-cancel link. It is never included in any list the API returns — only in that one confirmation email.
 
+## Changing an appointment
+
+Staff (rep or admin) can move and edit an appointment two ways.
+
+**Drag it.** On the grid, pick an appointment up and drop it on any free slot — another time, another station, another day. It asks to confirm, then moves it and emails everyone on the appointment. Retailers can't drag, and aren't told the feature exists.
+
+**Or click it → Edit / Move.** A form for the day, station and time plus the retailer, contact, phone, email, booking agency and notes. The time dropdown only offers slots that are actually free on the chosen station, so an impossible move isn't selectable in the first place.
+
+Moving always emails everyone — the checkbox ticks itself and locks, because a silent time change is how people miss appointments. A details-only edit sends nothing unless you tick the box.
+
+The server re-runs every check a fresh booking runs — real day, real station, a slot that exists, not taken, not blocked — inside the same lock that prevents double-booking. A move can't land on top of someone who booked a second earlier, and the API refuses it even if the request is crafted by hand.
+
 ## Changing an event after it exists
 
 **Manage → Edit Event** (admin only). You can change the name, subtitle, venue, city, notify address and the station names, and you can add stations.

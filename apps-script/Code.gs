@@ -334,7 +334,10 @@ function doPost(e) {
     if (action === 'cancel') return json_(cancel_(body, role));
 
     // Everything below is admin-only.
-    if (action === 'updateBooking') { requireRole_(role, ['admin'], 'edit a booking'); return json_(updateBooking_(body)); }
+    if (action === 'updateBooking') {
+      requireRole_(role, ['admin', 'rep'], 'change an appointment');
+      return json_(updateBooking_(body, role));
+    }
     if (action === 'toggleBlock') { requireRole_(role, ['admin'], 'block slots'); return json_(toggleBlock_(body)); }
     if (action === 'createEvent') { requireRole_(role, ['admin'], 'create an event'); return json_(createEvent_(body)); }
     if (action === 'updateEvent') { requireRole_(role, ['admin'], 'edit an event'); return json_(updateEvent_(body)); }
@@ -690,35 +693,130 @@ function cancel_(b, role) {
   return { ok: true, cancelled: cancelledId };
 }
 
-function updateBooking_(b) {
+/**
+ * Edit an appointment in place, and move it if a new slot is given.
+ *
+ * Moving re-runs exactly the checks a fresh booking runs — valid day, valid
+ * station, a real slot on the grid, not already taken, not blocked — all
+ * inside the same lock, so a move cannot land on top of someone who booked
+ * a second earlier.
+ */
+function updateBooking_(b, role) {
   if (!b.bookingId) throw new Error('Missing booking id.');
-  var editable = {
+
+  var detailCols = {
     retailer: 'retailer', contactName: 'contact_name', contactEmail: 'contact_email',
-    phone: 'phone', bookedBy: 'booked_by', notes: 'notes'
+    phone: 'phone', notes: 'notes'
   };
+
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw new Error('Server busy, please try again.');
+  var result;
   try {
     var sh = sheet_(SHEET_BOOKINGS, BOOKING_COLS);
     var rows = readAll_(SHEET_BOOKINGS, BOOKING_COLS);
+    var row = null;
     for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i].booking_id) === String(b.bookingId)) {
-        Object.keys(editable).forEach(function (k) {
-          if (b[k] !== undefined) {
-            sh.getRange(rows[i]._row, BOOKING_COLS.indexOf(editable[k]) + 1).setValue(trim_(b[k]));
-          }
-        });
-        sh.getRange(rows[i]._row, BOOKING_COLS.indexOf('updated_at') + 1).setValue(new Date().toISOString());
-        return { ok: true, bookingId: String(b.bookingId) };
-      }
+      if (String(rows[i].booking_id) === String(b.bookingId)) { row = rows[i]; break; }
     }
-    throw new Error('Booking not found.');
+    if (!row) throw new Error('Booking not found.');
+    if (String(row.status || 'confirmed') === 'cancelled') {
+      throw new Error('That appointment is cancelled. Book a new one instead.');
+    }
+
+    var ev = findEvent_(String(row.event_id));
+    if (!ev) throw new Error('Event not found.');
+    var event = shapeEvent_(ev);
+    var before = shapeBooking_(row);
+    var set = function (col, val) { sh.getRange(row._row, BOOKING_COLS.indexOf(col) + 1).setValue(val); };
+
+    /* ---- the move ---- */
+    var wantDate = b.date === undefined ? before.date : String(b.date);
+    var wantStation = b.stationId === undefined ? before.stationId : String(b.stationId);
+    var wantTime = b.startTime === undefined ? before.startTime : normTime_(b.startTime);
+    var moved = wantDate !== before.date || wantStation !== before.stationId
+      || wantTime !== before.startTime;
+
+    if (moved) {
+      var day = null;
+      for (var d = 0; d < event.days.length; d++) {
+        if (String(event.days[d].date) === wantDate) day = event.days[d];
+      }
+      if (!day) throw new Error('That date is not part of this event.');
+
+      var station = null;
+      for (var t = 0; t < event.stations.length; t++) {
+        if (String(event.stations[t].id) === wantStation) station = event.stations[t];
+      }
+      if (!station) throw new Error('Unknown station.');
+
+      if (buildSlots_(day, event).indexOf(wantTime) === -1) {
+        throw new Error('That time is not a valid slot for this day.');
+      }
+
+      // Re-read inside the lock, and ignore this booking's own row so moving
+      // an appointment onto itself is not treated as a clash.
+      var clash = readAll_(SHEET_BOOKINGS, BOOKING_COLS).filter(function (r) {
+        return String(r.event_id) === String(row.event_id)
+          && String(r.booking_id) !== String(row.booking_id)
+          && asDateStr_(r.date) === wantDate
+          && String(r.station_id) === wantStation
+          && asTimeStr_(r.start_time) === wantTime
+          && String(r.status || 'confirmed') !== 'cancelled';
+      });
+      if (clash.length) throw new Error('That slot is already taken. Pick another one.');
+
+      var blocked = readAll_(SHEET_BLOCKS, BLOCK_COLS).filter(function (r) {
+        return String(r.event_id) === String(row.event_id)
+          && asDateStr_(r.date) === wantDate
+          && String(r.station_id) === wantStation
+          && asTimeStr_(r.start_time) === wantTime;
+      });
+      if (blocked.length) throw new Error('That slot has been blocked off.');
+
+      set('date', wantDate);
+      set('station_id', wantStation);
+      set('station_name', station.name || '');
+      set('start_time', wantTime);
+      set('end_time', addMinutes_(wantTime, event.slotMinutes));
+    }
+
+    /* ---- the details ---- */
+    Object.keys(detailCols).forEach(function (k) {
+      if (b[k] !== undefined) set(detailCols[k], trim_(b[k]));
+    });
+    if (b.contactEmail !== undefined && trim_(b.contactEmail)
+      && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trim_(b.contactEmail))) {
+      throw new Error('That email address does not look valid.');
+    }
+    if (b.repId !== undefined) {
+      // Same rule as booking: the client sends an id, the address is ours.
+      set('booked_by', repName_(b.repId) || trim_(b.bookedBy));
+      set('booked_by_email', repEmail_(b.repId));
+    }
+
+    set('updated_at', new Date().toISOString());
+    SpreadsheetApp.flush();
+
+    var after = shapeBooking_(readAll_(SHEET_BOOKINGS, BOOKING_COLS).filter(function (r) {
+      return String(r.booking_id) === String(b.bookingId);
+    })[0]);
+    result = { ok: true, moved: moved, booking: after, _event: event, _before: before };
   } finally {
     SpreadsheetApp.flush();
     lock.releaseLock();
   }
-}
 
+  // Mail outside the lock. A move always warrants telling people; a pure
+  // detail edit only does when whoever made it asked for that.
+  var event2 = result._event, before2 = result._before;
+  delete result._event; delete result._before;
+  if (result.moved || b.notify) {
+    try { sendUpdatedEmails_(event2, result.booking, before2, result.moved); }
+    catch (e) { Logger.log('Update mail failed: ' + e); }
+  }
+  return result;
+}
 function toggleBlock_(b) {
   if (!b.eventId || !b.date || !b.stationId || !b.startTime) throw new Error('Missing block fields.');
   var lock = LockService.getScriptLock();
@@ -1041,6 +1139,91 @@ function internalRecipients_(event, booking) {
   emailList_(event.notifyEmail).forEach(add);
   emailList_(booking.bookedByEmail).forEach(add);
   return out;
+}
+
+/**
+ * Tells everyone an appointment changed. Same To/Cc shape as the confirmation,
+ * and it leads with the move because that is the part people act on.
+ */
+function sendUpdatedEmails_(event, booking, before, moved) {
+  var when = prettyDate_(booking.date) + ' at ' + pretty12_(booking.startTime)
+    + '–' + pretty12_(booking.endTime);
+  var wasWhen = prettyDate_(before.date) + ' at ' + pretty12_(before.startTime);
+  var where = [event.venue, event.city].filter(Boolean).join(' · ');
+  var link = cancelLink_(booking);
+
+  var subject = (moved ? 'Moved: ' : 'Updated: ') + booking.retailer
+    + ' — ' + booking.stationName + ' — ' + prettyDate_(booking.date)
+    + ' ' + pretty12_(booking.startTime);
+
+  var lead = moved
+    ? 'This appointment has moved.'
+    : 'The details for this appointment have been updated.';
+
+  var html = ''
+    + '<div style="font-family:Helvetica,Arial,sans-serif;color:#0F0F0F;max-width:520px">'
+    + '<div style="background:#0F0F0F;color:#F7F6F2;padding:20px 24px">'
+    + '<div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#C4A067">'
+    + (moved ? 'Appointment moved' : 'Appointment updated') + '</div>'
+    + '<div style="font-size:24px;font-weight:800;margin-top:6px">' + esc_(event.name) + '</div>'
+    + '</div>'
+    + '<div style="padding:24px;background:#F7F6F2">'
+    + '<p style="margin-top:0">' + esc_(lead) + '</p>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:15px">'
+    + (moved
+      ? row_('Was', wasWhen + ' · ' + before.stationName)
+        + '<tr><td style="padding:7px 14px 7px 0;color:#5A5A5A;white-space:nowrap;vertical-align:top">'
+        + 'Now</td><td style="padding:7px 0;font-weight:700">' + esc_(when) + '</td></tr>'
+      : row_('When', when))
+    + row_('Station', booking.stationName)
+    + (where ? row_('Where', where) : '')
+    + row_('Retailer', booking.retailer)
+    + row_('Contact', booking.contactName + (booking.phone ? ' · ' + booking.phone : ''))
+    + (booking.bookedBy ? row_('Booked by', booking.bookedBy) : '')
+    + (booking.notes ? row_('Notes', booking.notes) : '')
+    + row_('Confirmation', booking.bookingId)
+    + '</table>'
+    + (link
+      ? '<p style="margin-top:24px"><a href="' + esc_(link) + '" style="display:inline-block;'
+        + 'background:#0F0F0F;color:#F7F6F2;text-decoration:none;padding:11px 20px;border-radius:4px;'
+        + 'font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase">'
+        + 'Cancel this appointment</a></p>'
+      : '')
+    + '<p style="font-size:12px;color:#8A8A8A;margin-top:22px;letter-spacing:.08em;text-transform:uppercase">Draw Your Own Line&reg;</p>'
+    + '</div></div>';
+
+  var plain = (moved ? 'APPOINTMENT MOVED' : 'APPOINTMENT UPDATED') + '\n\n'
+    + event.name + '\n'
+    + (moved ? 'Was: ' + wasWhen + ' \u00b7 ' + before.stationName + '\nNow: ' + when : when) + '\n'
+    + booking.stationName + '\n'
+    + (where ? where + '\n' : '')
+    + '\nRetailer: ' + booking.retailer
+    + '\nContact: ' + booking.contactName + (booking.phone ? ' (' + booking.phone + ')' : '')
+    + (booking.bookedBy ? '\nBooked by: ' + booking.bookedBy : '')
+    + (booking.notes ? '\nNotes: ' + booking.notes : '')
+    + '\nConfirmation: ' + booking.bookingId
+    + (link ? '\n\nCancel this appointment:\n' + link : '');
+
+  var ics = buildIcs_(event, booking);
+  var msg = {
+    subject: subject, body: plain, htmlBody: html,
+    name: event.name + ' Appointments',
+    attachments: [Utilities.newBlob(ics, 'text/calendar', 'appointment.ics')]
+  };
+  if (event.replyTo) msg.replyTo = event.replyTo;
+
+  // The retailer's address may have just changed, so this uses the new one.
+  // An imported booking has none, so fall back to addressing staff.
+  var internal = internalRecipients_(event, booking);
+  if (booking.contactEmail) {
+    msg.to = booking.contactEmail;
+    if (internal.length) msg.cc = internal.join(',');
+  } else if (internal.length) {
+    msg.to = internal.join(',');
+  } else {
+    return;
+  }
+  MailApp.sendEmail(msg);
 }
 
 function sendCancelEmails_(event, booking) {

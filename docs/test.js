@@ -562,6 +562,108 @@ process.on('exit', stopMock);
   ok((await bk2.locator('#f-by').inputValue()) === 'agenc', 'picker remembers the agency');
   await bk2.screenshot({ path: shots + '14-agency-picker.png' });
 
+  head('20c3. Moving and editing an appointment');
+  const { page: mv } = await ctxFor(REP);
+  await mv.goto(B + '/event.html?e=surf-expo-fall-2026');
+  await mv.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  ok(!(await mv.locator('#lg-drag').isHidden()), 'staff are told they can drag');
+
+  // --- the edit form ---
+  await mv.locator('td.slot-taken .slot-btn').first().click();
+  await mv.waitForSelector('#detail-modal:not([hidden])');
+  ok(!(await mv.locator('#det-edit').isHidden()), 'staff get an Edit button');
+  await mv.click('#det-edit');
+  await mv.waitForSelector('#det-form:not([hidden])');
+  ok(await mv.locator('#det-table').isHidden(), 'the read-only table gives way to the form');
+  const mv_editedName = await mv.locator('#e-retailer').inputValue();
+  ok(!!mv_editedName, 'form is pre-filled with the retailer: ' + mv_editedName);
+
+  // The time list must not offer slots that are already taken.
+  const mv_dayVal = await mv.locator('#e-day').inputValue();
+  const mv_stVal = await mv.locator('#e-station').inputValue();
+  const mv_offered = await mv.locator('#e-time option').evaluateAll((os) => os.map((o) => o.value));
+  const mv_feed = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: REP });
+  const mv_takenTimes = mv_feed.bookings.filter((b) => b.date === mv_dayVal && b.stationId === mv_stVal
+    && b.retailer !== mv_editedName).map((b) => b.startTime);
+  ok(mv_takenTimes.every((t) => !mv_offered.includes(t)),
+    'times already taken on that station are not offered (' + mv_takenTimes.join(',') + ')');
+  await mv.screenshot({ path: shots + '15-edit-booking.png' });
+
+  // Editing details only — should not force an email.
+  ok(!(await mv.locator('#e-notify').isChecked()), 'a details-only edit does not notify by default');
+  await mv.fill('#e-phone', '555-0199');
+  await mv.fill('#e-notes', 'Bringing two buyers.');
+  await mv.click('#det-save');
+  await mv.waitForSelector('#detail-modal[hidden]', { state: 'attached', timeout: 8000 });
+  await mv.waitForTimeout(700);
+  const mv_afterEdit = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: REP });
+  const mv_edited = mv_afterEdit.bookings.find((b) => b.retailer === mv_editedName);
+  ok(mv_edited.phone === '555-0199', 'phone saved');
+  ok(/two buyers/.test(mv_edited.notes), 'notes saved');
+  ok(mv_edited.startTime !== undefined, 'and it kept its slot');
+
+  // --- moving via the form ---
+  await mv.locator('td.slot-taken .slot-btn').first().click();
+  await mv.waitForSelector('#detail-modal:not([hidden])');
+  await mv.click('#det-edit');
+  await mv.waitForSelector('#det-form:not([hidden])');
+  const mv_before = { date: await mv.locator('#e-day').inputValue(),
+                   time: await mv.locator('#e-time').inputValue() };
+  const mv_times = await mv.locator('#e-time option').evaluateAll((os) => os.map((o) => o.value));
+  const mv_target = mv_times.find((t) => t !== mv_before.time);
+  await mv.selectOption('#e-time', mv_target);
+  ok(await mv.locator('#e-notify').isChecked(), 'changing the time forces the notification on');
+  ok(await mv.locator('#e-notify').isDisabled(), 'and it cannot be unticked');
+  ok(/time is changing/i.test(await mv.locator('#e-notify-label').innerText()), 'and says why');
+  await mv.click('#det-save');
+  await mv.waitForTimeout(1200);
+  ok(/moved to/i.test(await mv.locator('#alert').innerText()), 'confirms the move on the grid');
+  const mv_afterMove = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: REP });
+  const mv_movedBk = mv_afterMove.bookings.find((b) => b.retailer === mv_editedName);
+  ok(mv_movedBk.startTime === mv_target, `it really moved (${mv_before.time} -> ${mv_movedBk.startTime})`);
+  ok(mv_movedBk.phone === '555-0199', 'and kept the details edited a moment ago');
+
+  // --- the server refuses an illegal move ---
+  const mv_occupied = mv_afterMove.bookings.find((b) => b.retailer !== mv_editedName
+    && b.date === mv_movedBk.date && b.stationId === mv_movedBk.stationId);
+  if (mv_occupied) {
+    const mv_onTop = await api({ action: 'updateBooking', token: REP, bookingId: mv_movedBk.bookingId,
+      date: mv_occupied.date, stationId: mv_occupied.stationId, startTime: mv_occupied.startTime });
+    ok(mv_onTop.ok === false && /already taken/.test(mv_onTop.error),
+      'cannot drop one appointment on top of another: ' + mv_onTop.error);
+  }
+  const mv_offGrid = await api({ action: 'updateBooking', token: REP, bookingId: mv_movedBk.bookingId,
+    date: mv_movedBk.date, stationId: mv_movedBk.stationId, startTime: '23:00' });
+  ok(mv_offGrid.ok === false && /not a valid slot/.test(mv_offGrid.error), 'cannot move to a time off the grid');
+  const mv_badDay = await api({ action: 'updateBooking', token: REP, bookingId: mv_movedBk.bookingId,
+    date: '2030-01-01', stationId: mv_movedBk.stationId, startTime: mv_movedBk.startTime });
+  ok(mv_badDay.ok === false && /not part of this event/.test(mv_badDay.error), 'cannot move to a day outside the event');
+
+  // --- a retailer cannot move anything ---
+  const mv_pubMove = await api({ action: 'updateBooking', bookingId: mv_movedBk.bookingId, startTime: '09:00' });
+  ok(mv_pubMove.ok === false && /PASSWORD_REQUIRED/.test(mv_pubMove.error), 'retailers cannot move appointments');
+  const { page: noDrag } = await ctxFor(null);
+  await noDrag.goto(B + '/event.html?e=surf-expo-fall-2026');
+  await noDrag.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  ok(await noDrag.locator('#lg-drag').isHidden(), 'and are not told about dragging');
+  ok(await noDrag.locator('td.slot-taken.draggable').count() === 0, 'nothing is draggable for them');
+
+  // --- drag and drop actually works ---
+  const { page: dd } = await ctxFor(ADMIN);
+  await dd.goto(B + '/event.html?e=surf-expo-fall-2026');
+  await dd.waitForSelector('table.grid tbody tr', { timeout: 8000 });
+  const mv_src = dd.locator('td.slot-taken.draggable .slot-btn').first();
+  const mv_dragged = await mv_src.locator('.retailer').innerText();
+  const mv_dst = dd.locator('td.slot-open').first();
+  dd.once('dialog', (d) => d.accept());
+  await mv_src.dragTo(mv_dst);
+  await dd.waitForTimeout(1400);
+  ok(/moved to/i.test(await dd.locator('#alert').innerText()),
+    'drag-and-drop moved it: ' + (await dd.locator('#alert').innerText()).slice(0, 80));
+  const mv_afterDrag = await apiGet({ action: 'event', id: 'surf-expo-fall-2026', token: ADMIN });
+  ok(mv_afterDrag.bookings.some((b) => b.retailer === mv_dragged), mv_dragged + ' is still on the grid');
+  ok(mv_afterDrag.bookings.length === mv_afterMove.bookings.length, 'no appointment was lost or duplicated');
+
   head('20d. Pretty links load their assets');
   // /e/<id> is served by a rewrite, so the browser URL stays one level deep.
   // Any relative asset path would resolve to /e/assets/... and 404, leaving an

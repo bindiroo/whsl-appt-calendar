@@ -524,3 +524,23 @@ table.data tr:hover td { background: #FAFBFB; }
   font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
   color: var(--sea-pale); align-self: center;
 }
+
+/* ---------- Editing an appointment ---------- */
+
+.checkline {
+  display: flex; align-items: flex-start; gap: 9px; margin-top: 6px;
+  font-size: 13px; color: var(--ink-soft); cursor: pointer;
+  text-transform: none; letter-spacing: 0; font-weight: 400;
+}
+.checkline input { margin-top: 3px; }
+
+/* Staff can pick an appointment up and drop it on a free slot. */
+.slot-taken.draggable .slot-btn { cursor: grab; }
+.slot-taken.draggable .slot-btn:active { cursor: grabbing; }
+.slot-dragging { opacity: .4; }
+.slot-open.drop-ok { background: #DCE7E9; box-shadow: inset 0 0 0 2px var(--deep-sea); }
+.slot-open.drop-ok .slot-btn .dash { display: none; }
+.drag-hint {
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-faint);
+}

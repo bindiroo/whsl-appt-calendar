@@ -42,6 +42,7 @@
     <span><i class="lg-open"></i>Open — click to book</span>
     <span id="lg-booked"><i class="lg-taken"></i>Booked</span>
     <span><i class="lg-blocked"></i>Blocked off</span>
+    <span class="drag-hint" id="lg-drag" hidden>Drag an appointment to move it &middot; click it to edit</span>
     <span class="mobile-only">Swipe the grid sideways to see every station.</span>
   </div>
 </main>
@@ -115,10 +116,63 @@
     <div class="modal-body">
       <div id="det-alert" class="alert" hidden></div>
       <table class="data" id="det-table" style="border:1px solid var(--line);border-radius:4px"></table>
+
+      <form id="det-form" hidden>
+        <div class="section-title" style="margin-top:0">When</div>
+        <div class="row3">
+          <div class="field">
+            <label for="e-day">Day</label>
+            <select id="e-day"></select>
+          </div>
+          <div class="field">
+            <label for="e-station">Station</label>
+            <select id="e-station"></select>
+          </div>
+          <div class="field">
+            <label for="e-time">Time</label>
+            <select id="e-time"></select>
+          </div>
+        </div>
+
+        <div class="section-title">Who</div>
+        <div class="field">
+          <label for="e-retailer">Retailer / Company</label>
+          <input type="text" id="e-retailer">
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="e-name">Contact Name</label>
+            <input type="text" id="e-name">
+          </div>
+          <div class="field">
+            <label for="e-phone">Phone</label>
+            <input type="tel" id="e-phone">
+          </div>
+        </div>
+        <div class="field">
+          <label for="e-email">Email</label>
+          <input type="email" id="e-email">
+        </div>
+        <div class="field">
+          <label for="e-by">Booked By</label>
+          <select id="e-by"></select>
+        </div>
+        <div class="field">
+          <label for="e-notes">Notes</label>
+          <textarea id="e-notes"></textarea>
+        </div>
+        <label class="checkline">
+          <input type="checkbox" id="e-notify">
+          <span id="e-notify-label">Email everyone about this change</span>
+        </label>
+      </form>
     </div>
     <div class="modal-foot">
       <button class="btn btn-danger" id="det-cancel-booking">Cancel Appointment</button>
       <button class="btn btn-ghost" id="det-ics">Add to Calendar</button>
+      <button class="btn btn-ghost" id="det-edit" hidden>Edit / Move</button>
+      <button class="btn btn-ghost" id="det-back" hidden>Back</button>
+      <button class="btn" id="det-save" hidden>Save Changes</button>
       <button class="btn" id="det-close">Done</button>
     </div>
   </div>
@@ -208,6 +262,7 @@
       // Signed-in staff are the ones who send this link out, so name it for
       // them and say plainly that it carries no password.
       $('btn-copy').textContent = state.canSeeNames ? 'Copy Retailer Link' : 'Copy Booking Link';
+    $('lg-drag').hidden = !state.canSeeNames;
       $('copy-note').hidden = !state.canSeeNames;
       ST.hideAlert(alertBox);
       renderHero();
@@ -291,6 +346,7 @@
             + '<span class="who">' + ST.esc(booking.contactName || '')
             + (booking.bookedBy ? ' &middot; via ' + ST.esc(booking.bookedBy) : '') + '</span>';
           btn.addEventListener('click', function () { openDetail(booking); });
+          makeDraggable(td, btn, booking);
         } else if (booking) {
           // Retailer view: the slot is taken, and that is all anyone is told.
           td.className += ' anon';
@@ -301,6 +357,7 @@
         } else {
           btn.innerHTML = '<span class="dash">+</span><span class="plus">+ Book ' + ST.pretty12(t) + '</span>';
           btn.addEventListener('click', function () { openBooking(day, s, t); });
+          if (state.canSeeNames) makeDropTarget(td, day.date, s.id, t);
         }
         td.appendChild(btn);
         tr.appendChild(td);
@@ -337,6 +394,72 @@
       var last = localStorage.getItem(REP_MEMORY);
       if (last && state.reps.some(function (r) { return r.id === last; })) sel.value = last;
     } catch (e) {}
+  }
+
+  /* ---------------- Drag an appointment to a new slot ----------------
+     Staff only, and pointer-based rather than HTML5 drag-and-drop so the
+     grid's own scrolling still works. Everything it can do is also in the
+     Edit form, which is what touch devices and keyboards use. */
+
+  var drag = null;
+
+  function makeDraggable(td, btn, booking) {
+    td.classList.add('draggable');
+    btn.draggable = true;
+    btn.addEventListener('dragstart', function (e) {
+      drag = { booking: booking };
+      td.classList.add('slot-dragging');
+      try {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', booking.bookingId);
+      } catch (err) {}
+    });
+    btn.addEventListener('dragend', function () {
+      td.classList.remove('slot-dragging');
+      document.querySelectorAll('.drop-ok').forEach(function (n) { n.classList.remove('drop-ok'); });
+      drag = null;
+    });
+  }
+
+  function makeDropTarget(td, date, stationId, time) {
+    td.addEventListener('dragover', function (e) {
+      if (!drag) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+      td.classList.add('drop-ok');
+    });
+    td.addEventListener('dragleave', function () { td.classList.remove('drop-ok'); });
+    td.addEventListener('drop', function (e) {
+      e.preventDefault();
+      td.classList.remove('drop-ok');
+      if (!drag) return;
+      var b = drag.booking;
+      drag = null;
+      moveBooking(b, date, stationId, time);
+    });
+  }
+
+  function moveBooking(b, date, stationId, time) {
+    var station = '';
+    state.event.stations.forEach(function (s) { if (s.id === stationId) station = s.name; });
+    if (!confirm('Move ' + b.retailer + '\n\nfrom  ' + ST.longDate(b.date) + ', '
+      + ST.pretty12(b.startTime) + ' \u00b7 ' + b.stationName
+      + '\nto      ' + ST.longDate(date) + ', ' + ST.pretty12(time) + ' \u00b7 ' + station
+      + '\n\nEveryone on the appointment will be emailed.')) return;
+
+    ST.post({
+      action: 'updateBooking', bookingId: b.bookingId,
+      date: date, stationId: stationId, startTime: time
+    }).then(function (d) {
+      return load(true).then(function () {
+        ST.showAlert(alertBox, 'ok', b.retailer + ' moved to ' + ST.longDate(d.booking.date)
+          + ', ' + ST.pretty12(d.booking.startTime) + ' \u00b7 ' + d.booking.stationName
+          + '. Everyone on it has been emailed.');
+      });
+    }).catch(function (err) {
+      ST.showAlert(alertBox, 'error', err.message);
+      load(true);
+    });
   }
 
   /* ---------------- Booking modal ---------------- */
@@ -430,6 +553,7 @@
 
   function openDetail(b) {
     detailBooking = b;
+    showDetailView();
     $('det-title').textContent = b.retailer;
     $('det-sub').textContent = ST.longDate(b.date) + ' · ' + ST.pretty12(b.startTime) + ' · ' + b.stationName;
     $('det-table').innerHTML = rowsTable(b, state.canSeeNames);
@@ -438,6 +562,158 @@
   }
 
   $('det-x').onclick = $('det-close').onclick = function () { $('detail-modal').hidden = true; };
+
+  /* ---------------- Editing / moving ---------------- */
+
+  /* Which slots this appointment could move to: every slot on the grid that is
+     free, plus the one it already occupies. */
+  function freeSlots(date, stationId, selfId) {
+    var day = null;
+    state.event.days.forEach(function (d) { if (d.date === date) day = d; });
+    if (!day) return [];
+    return ST.slotsFor(day, state.event).filter(function (t) {
+      var k = ST.slotKey(date, stationId, t);
+      var taken = state.byKey[k];
+      if (state.blockByKey[k]) return false;
+      return !taken || taken.bookingId === selfId;
+    });
+  }
+
+  function fillTimes(keepIfPossible) {
+    var sel = $('e-time');
+    var want = keepIfPossible || sel.value;
+    var times = freeSlots($('e-day').value, $('e-station').value, detailBooking.bookingId);
+    sel.innerHTML = '';
+    if (!times.length) {
+      sel.appendChild(ST.el('option', { value: '', text: 'No free times on this station' }));
+      return;
+    }
+    times.forEach(function (t) {
+      sel.appendChild(ST.el('option', { value: t, text: ST.pretty12(t) }));
+    });
+    sel.value = times.indexOf(want) >= 0 ? want : times[0];
+  }
+
+  function showEditForm() {
+    var b = detailBooking;
+    $('det-table').hidden = true;
+    $('det-form').hidden = false;
+    $('det-edit').hidden = true;
+    $('det-ics').hidden = true;
+    $('det-close').hidden = true;
+    $('det-back').hidden = false;
+    $('det-save').hidden = false;
+    $('det-eyebrow').textContent = 'Edit appointment';
+
+    var day = $('e-day');
+    day.innerHTML = '';
+    state.event.days.forEach(function (d) {
+      day.appendChild(ST.el('option', { value: d.date, text: ST.longDate(d.date) }));
+    });
+    day.value = b.date;
+
+    var st = $('e-station');
+    st.innerHTML = '';
+    state.event.stations.forEach(function (x) {
+      st.appendChild(ST.el('option', { value: x.id, text: x.name }));
+    });
+    st.value = b.stationId;
+
+    fillTimes(b.startTime);
+
+    $('e-retailer').value = b.retailer || '';
+    $('e-name').value = b.contactName || '';
+    $('e-email').value = b.contactEmail || '';
+    $('e-phone').value = b.phone || '';
+    $('e-notes').value = b.notes || '';
+
+    var by = $('e-by');
+    by.innerHTML = '';
+    by.appendChild(ST.el('option', { value: '', text: '\u2014 No agency \u2014' }));
+    state.reps.forEach(function (r) {
+      by.appendChild(ST.el('option', { value: r.id, text: r.name }));
+    });
+    var match = state.reps.filter(function (r) { return r.name === b.bookedBy; })[0];
+    by.value = match ? match.id : '';
+
+    $('e-notify').checked = false;
+    refreshNotifyHint();
+    ST.hideAlert($('det-alert'));
+  }
+
+  function showDetailView() {
+    $('det-table').hidden = false;
+    $('det-form').hidden = true;
+    $('det-edit').hidden = !state.canSeeNames;
+    $('det-ics').hidden = false;
+    $('det-close').hidden = false;
+    $('det-back').hidden = true;
+    $('det-save').hidden = true;
+    $('det-eyebrow').textContent = 'Booked';
+  }
+
+  /* Moving always notifies; a details-only edit is opt-in, so the checkbox
+     explains itself rather than silently meaning two different things. */
+  function refreshNotifyHint() {
+    var b = detailBooking;
+    var slotChanged = $('e-day').value !== b.date
+      || $('e-station').value !== b.stationId
+      || $('e-time').value !== b.startTime;
+    var cb = $('e-notify');
+    cb.checked = slotChanged ? true : cb.checked;
+    cb.disabled = slotChanged;
+    $('e-notify-label').textContent = slotChanged
+      ? 'Everyone will be emailed \u2014 the time is changing'
+      : 'Email everyone about this change';
+  }
+
+  ['e-day', 'e-station'].forEach(function (id) {
+    $(id).addEventListener('change', function () { fillTimes(); refreshNotifyHint(); });
+  });
+  $('e-time').addEventListener('change', refreshNotifyHint);
+
+  $('det-edit').onclick = showEditForm;
+  $('det-back').onclick = function () { showDetailView(); ST.hideAlert($('det-alert')); };
+
+  $('det-save').onclick = function () {
+    var btn = this;
+    var b = detailBooking;
+    var payload = {
+      action: 'updateBooking',
+      bookingId: b.bookingId,
+      date: $('e-day').value,
+      stationId: $('e-station').value,
+      startTime: $('e-time').value,
+      retailer: $('e-retailer').value.trim(),
+      contactName: $('e-name').value.trim(),
+      contactEmail: $('e-email').value.trim(),
+      phone: $('e-phone').value.trim(),
+      notes: $('e-notes').value.trim(),
+      repId: $('e-by').value,
+      notify: $('e-notify').checked
+    };
+    if (!payload.startTime) {
+      return ST.showAlert($('det-alert'), 'error', 'Pick a time for the appointment.');
+    }
+    if (!payload.retailer) {
+      return ST.showAlert($('det-alert'), 'error', 'The appointment needs a retailer name.');
+    }
+    btn.disabled = true; btn.textContent = 'Saving\u2026';
+    ST.post(payload).then(function (d) {
+      $('detail-modal').hidden = true;
+      return load(true).then(function () {
+        ST.showAlert(alertBox, 'ok', d.moved
+          ? 'Appointment moved to ' + ST.longDate(d.booking.date) + ', '
+            + ST.pretty12(d.booking.startTime) + ' \u00b7 ' + d.booking.stationName
+            + '. Everyone on it has been emailed.'
+          : 'Appointment updated.');
+      });
+    }).catch(function (err) {
+      ST.showAlert($('det-alert'), 'error', err.message);
+    }).finally(function () {
+      btn.disabled = false; btn.textContent = 'Save Changes';
+    });
+  };
 
   $('det-ics').onclick = function () {
     if (detailBooking) ST.download('appointment.ics', ST.icsFor(state.event, detailBooking), 'text/calendar');

@@ -155,6 +155,46 @@ function handle(action, body) {
     b.status = 'cancelled';
     return { ok: true, role, cancelled: b.bookingId };
   }
+  if (action === 'updateBooking') {
+    requireRole(role, ['admin', 'rep'], 'change an appointment');
+    const b = db.bookings.find((x) => x.bookingId === body.bookingId);
+    if (!b) throw new Error('Booking not found.');
+    if (b.status === 'cancelled') throw new Error('That appointment is cancelled. Book a new one instead.');
+    const ev = db.events.find((e) => e.eventId === b.eventId);
+    const before = { ...b };
+
+    const wantDate = body.date === undefined ? b.date : String(body.date);
+    const wantStation = body.stationId === undefined ? b.stationId : String(body.stationId);
+    const wantTime = body.startTime === undefined ? b.startTime : String(body.startTime);
+    const moved = wantDate !== b.date || wantStation !== b.stationId || wantTime !== b.startTime;
+
+    if (moved) {
+      const day = ev.days.find((d) => d.date === wantDate);
+      if (!day) throw new Error('That date is not part of this event.');
+      const station = ev.stations.find((s) => s.id === wantStation);
+      if (!station) throw new Error('Unknown station.');
+      if (!slotsFor(day, ev).includes(wantTime)) throw new Error('That time is not a valid slot for this day.');
+      const clash = db.bookings.find((x) => x.eventId === b.eventId && x.bookingId !== b.bookingId
+        && x.date === wantDate && x.stationId === wantStation && x.startTime === wantTime
+        && x.status !== 'cancelled');
+      if (clash) throw new Error('That slot is already taken. Pick another one.');
+      if (db.blocks.find((x) => x.eventId === b.eventId && x.date === wantDate
+        && x.stationId === wantStation && x.startTime === wantTime)) {
+        throw new Error('That slot has been blocked off.');
+      }
+      b.date = wantDate; b.stationId = wantStation; b.stationName = station.name;
+      b.startTime = wantTime; b.endTime = fromMin(toMin(wantTime) + ev.slotMinutes);
+    }
+
+    ['retailer', 'contactName', 'contactEmail', 'phone', 'notes'].forEach((k) => {
+      if (body[k] !== undefined) b[k] = String(body[k]).trim();
+    });
+    if (body.repId !== undefined) {
+      b.bookedBy = (repById(body.repId) || {}).name || body.bookedBy || '';
+      b.bookedByEmail = (repById(body.repId) || {}).email || '';
+    }
+    return { ok: true, role, moved, booking: b, before };
+  }
   if (action === 'toggleBlock') {
     requireRole(role, ['admin'], 'block slots');
     const i = db.blocks.findIndex((b) => b.eventId === body.eventId && b.date === body.date
